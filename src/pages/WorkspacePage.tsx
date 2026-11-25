@@ -4,6 +4,8 @@ import {
   ArrowRight,
   CalendarDays,
   Camera,
+  ChevronLeft,
+  ChevronRight,
   Clapperboard,
   Film,
   FolderOpen,
@@ -12,6 +14,8 @@ import {
   MonitorPlay,
   Palette,
   PanelRight,
+  PenLine,
+  Play,
   Search,
   SearchCheck,
   Sparkles,
@@ -71,14 +75,53 @@ const SHELF_TABS: Array<{ id: ShelfTab; label: string }> = [
   { id: 'approval', label: 'Approval' },
 ]
 
-const STUDIO_ART = {
-  blue:
-    'radial-gradient(120% 110% at 85% -10%, rgba(64,140,255,0.5), transparent 62%), radial-gradient(100% 90% at 0% 110%, rgba(0,212,255,0.2), transparent 58%), linear-gradient(160deg, #0d1520, #090c11 72%)',
-  violet:
-    'radial-gradient(120% 110% at 80% -10%, rgba(139,92,246,0.48), transparent 62%), radial-gradient(100% 90% at 0% 110%, rgba(236,72,153,0.18), transparent 58%), linear-gradient(160deg, #140f1f, #0a0910 72%)',
-  ember:
-    'radial-gradient(120% 110% at 80% -10%, rgba(255,122,54,0.38), transparent 62%), radial-gradient(100% 90% at 0% 110%, rgba(255,196,54,0.16), transparent 58%), linear-gradient(160deg, #191107, #0c0a08 72%)',
-} as const
+const PROMO_ART =
+  'radial-gradient(38% 52% at 74% 46%, rgba(80,255,220,0.55), rgba(20,120,255,0.22) 46%, transparent 72%), radial-gradient(80% 90% at 100% 100%, rgba(0,70,255,0.28), transparent 70%), linear-gradient(115deg,#0a1c22,#060b10 62%)'
+
+const STUDIO_TOOLS: Array<{ to: string; icon: LucideIcon; title: string; sub: string; art: string }> = [
+  {
+    to: '/video-studio',
+    icon: Clapperboard,
+    title: 'Video production',
+    sub: 'Storyboard to master cut',
+    art: 'radial-gradient(120% 120% at 85% 15%, rgba(0,212,255,0.5), transparent 60%), linear-gradient(150deg,#0d1a24,#0a0d12 70%)',
+  },
+  {
+    to: '/design',
+    icon: Palette,
+    title: 'Design studio',
+    sub: 'Covers, thumbnails, templates',
+    art: 'radial-gradient(120% 120% at 80% 10%, rgba(139,92,246,0.5), transparent 60%), linear-gradient(150deg,#171025,#0b0910 70%)',
+  },
+  {
+    to: '/trends',
+    icon: TrendingUp,
+    title: 'Trend radar',
+    sub: 'Live signals, ranked',
+    art: 'radial-gradient(120% 120% at 85% 20%, rgba(255,122,54,0.45), transparent 60%), linear-gradient(150deg,#1a120a,#0c0a08 70%)',
+  },
+  {
+    to: '/script',
+    icon: PenLine,
+    title: 'Script studio',
+    sub: 'Hooks, scenes, narration',
+    art: 'radial-gradient(120% 120% at 80% 10%, rgba(0,255,214,0.36), transparent 60%), linear-gradient(150deg,#0a1a19,#080d10 70%)',
+  },
+  {
+    to: '/youtube',
+    icon: MonitorPlay,
+    title: 'YouTube studio',
+    sub: 'Shorts and long-form metadata',
+    art: 'radial-gradient(120% 120% at 80% 15%, rgba(255,72,86,0.45), transparent 60%), linear-gradient(150deg,#1a0f12,#0b090a 70%)',
+  },
+  {
+    to: '/instagram',
+    icon: Camera,
+    title: 'Instagram studio',
+    sub: 'Reels, covers and captions',
+    art: 'radial-gradient(120% 120% at 80% 15%, rgba(236,72,153,0.45), transparent 60%), linear-gradient(150deg,#1a0f18,#0b090d 70%)',
+  },
+]
 
 function platformArt(platform: Project['platform']) {
   if (platform === 'instagram-reel') {
@@ -101,6 +144,7 @@ export default function WorkspacePage() {
   const [shelfTab, setShelfTab] = useState<ShelfTab>('recent')
   const [shelfQuery, setShelfQuery] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const feedRef = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
 
   const session: Session | undefined = sessionId ? state.sessions.find((s) => s.id === sessionId) : undefined
@@ -207,6 +251,12 @@ export default function WorkspacePage() {
     handleSend({ text: prompt, attachments: [], platform: 'auto', language: 'auto' })
   }
 
+  const focusComposer = () => {
+    const el = document.getElementById('prompt-input')
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    el?.focus({ preventScroll: true })
+  }
+
   if (sessionId && !session) {
     return (
       <div className="mx-auto w-full max-w-2xl px-4 py-16">
@@ -242,7 +292,9 @@ export default function WorkspacePage() {
           <div
             className={cx(
               'absolute inset-0 transition-opacity duration-700',
-              welcome ? 'opacity-[0.22]' : 'opacity-[0.17]',
+              welcome
+                ? 'opacity-[0.2] [mask-image:radial-gradient(ellipse_64%_58%_at_50%_34%,#000_24%,transparent_84%)]'
+                : 'opacity-[0.17]',
             )}
           >
             {qualitySetting === 'off' ? (
@@ -270,8 +322,8 @@ export default function WorkspacePage() {
 
         {welcome ? (
           <div className="scroll-thin relative z-[1] flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1180px] px-4 pb-14 pt-8 sm:px-6 sm:pt-12">
-              <header className="mx-auto max-w-[880px] text-center">
+            <div className="mx-auto w-full max-w-[1180px] px-4 pb-[calc(96px+env(safe-area-inset-bottom))] pt-6 sm:px-6 sm:pt-10 lg:pb-14">
+              <header className="mx-auto max-w-[720px] text-center">
                 <div className="inline-flex items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.035] px-3 py-1 backdrop-blur-sm">
                   <span
                     className="h-3.5 w-3.5 rounded-full bg-[linear-gradient(140deg,#00d4ff,#8b5cf6)] shadow-[0_0_12px_rgba(0,212,255,0.55)]"
@@ -280,71 +332,61 @@ export default function WorkspacePage() {
                   <span className="font-mono text-[9.5px] uppercase tracking-[0.22em] text-txt-muted">AI Viral Studio</span>
                 </div>
 
-                <h1 className="mt-5 font-display text-[clamp(2.3rem,5.8vw,4rem)] font-semibold leading-[0.98] tracking-[-0.045em] text-txt">
+                <h1 className="mt-4 font-display text-[clamp(1.9rem,4vw,2.75rem)] font-semibold leading-[1.02] tracking-[-0.04em] text-txt">
                   You call the shots.
                 </h1>
-                <p className="mx-auto mt-3 max-w-[48ch] text-balance text-[13px] leading-relaxed text-txt-muted sm:text-[14px]">
-                  One brief starts research, script, voice, visuals and QC — a 12-agent studio that delivers everything
-                  for your approval.
+                <p className="mx-auto mt-2.5 max-w-[52ch] text-balance text-[13px] leading-relaxed text-txt-muted">
+                  One brief starts research, script, voice, visuals and QC — simulated locally, approved by you.
                 </p>
-
-                <div className="mx-auto mt-7 w-full max-w-[860px] text-left">
-                  <Composer mode="studio" onSend={handleSend} />
-
-                  <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-                    <span className="mr-1 hidden font-mono text-[9px] uppercase tracking-[0.16em] text-txt-faint sm:inline">
-                      Try
-                    </span>
-                    {PROMPT_SUGGESTIONS.slice(0, 4).map((suggestion, index) => {
-                      const Icon = SUGGESTION_ICONS[suggestion.icon as keyof typeof SUGGESTION_ICONS] ?? Sparkles
-                      return (
-                        <button
-                          key={suggestion.id}
-                          onClick={() => startFromSuggestion(suggestion.prompt)}
-                          className={cx(
-                            'inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10.5px] text-txt-muted transition-colors hover:border-cyan/25 hover:bg-cyan/[0.06] hover:text-txt',
-                            index === 3 && 'hidden sm:inline-flex',
-                          )}
-                        >
-                          <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
-                          <span className="truncate">{suggestion.label}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-
-                  <p className="mt-3 text-center text-[10px] text-txt-faint">
-                    Demo engine · outputs are simulated · nothing publishes automatically
-                  </p>
-                </div>
               </header>
 
-              <div className="mt-9 flex flex-wrap items-center gap-3 rounded-2xl border border-white/[0.08] bg-[linear-gradient(100deg,rgba(0,212,255,0.07),rgba(139,92,246,0.07)_55%,rgba(255,255,255,0.02))] px-4 py-3">
-                <span
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.06] text-cyan"
-                  aria-hidden="true"
-                >
-                  <Sparkles className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12px] font-medium text-txt">Demo engine · every output here is simulated locally</p>
-                  <p className="mt-0.5 text-[10.5px] leading-relaxed text-txt-faint">
-                    12 specialist agents advance on a local clock. Nothing is scheduled or published automatically.
-                  </p>
+              <div className="mx-auto mt-6 w-full max-w-[780px]">
+                <Composer mode="studio" onSend={handleSend} />
+
+                <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 px-1">
+                  <span className="mr-1 hidden font-mono text-[9px] uppercase tracking-[0.16em] text-txt-faint sm:inline">
+                    Try
+                  </span>
+                  {PROMPT_SUGGESTIONS.slice(0, 3).map((suggestion) => {
+                    const Icon = SUGGESTION_ICONS[suggestion.icon as keyof typeof SUGGESTION_ICONS] ?? Sparkles
+                    return (
+                      <button
+                        key={suggestion.id}
+                        onClick={() => startFromSuggestion(suggestion.prompt)}
+                        className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[10.5px] text-txt-muted transition-colors hover:border-cyan/25 hover:bg-cyan/[0.06] hover:text-txt"
+                      >
+                        <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{suggestion.label}</span>
+                      </button>
+                    )
+                  })}
                 </div>
+
+                <p className="mt-2.5 text-center text-[10px] text-txt-faint">
+                  Demo engine · outputs are simulated · nothing publishes automatically
+                </p>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.08] bg-[linear-gradient(100deg,rgba(0,212,255,0.06),rgba(139,92,246,0.06)_55%,rgba(255,255,255,0.02))] px-3 py-2">
+                <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-txt-muted">
+                  <span className="font-medium text-txt">Demo engine.</span> 12 specialist agents advance on a local
+                  clock — nothing is scheduled or published automatically.
+                </p>
                 <Link
                   to="/verification"
-                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[11px] text-txt-muted transition-colors hover:border-white/20 hover:text-txt"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-white/[0.1] bg-white/[0.04] px-2.5 py-1 text-[10.5px] text-txt-muted transition-colors hover:border-white/20 hover:text-txt"
                 >
                   What’s real <ArrowRight className="h-3 w-3" aria-hidden="true" />
                 </Link>
               </div>
 
-              <section className="mt-7" aria-label="Studio shelf">
+              <section className="mt-6" aria-label="Studio tools">
                 <div className="flex items-end justify-between gap-2">
                   <div>
-                    <h2 className="font-display text-[16px] font-medium tracking-tight text-txt">Studio shelf</h2>
-                    <p className="mt-0.5 text-[11px] text-txt-faint">Jump straight into a specialist studio.</p>
+                    <h2 className="font-display text-[15px] font-medium tracking-tight text-txt">Studio tools</h2>
+                    <p className="mt-0.5 text-[11px] text-txt-faint">
+                      No AI model, voice or video API is connected yet — every run is simulated locally.
+                    </p>
                   </div>
                   <Link
                     to="/team"
@@ -354,129 +396,121 @@ export default function WorkspacePage() {
                   </Link>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-[1.1fr_1fr_1fr_1fr]">
-                  <div className="flex flex-col rounded-2xl border border-white/[0.08] bg-white/[0.025] p-3 backdrop-blur-sm sm:col-span-2 xl:col-span-1">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[12.5px] font-medium text-txt">Quick starts</p>
-                      <Link to="/productions" className="text-[10px] text-txt-faint transition-colors hover:text-txt-muted">
-                        All →
-                      </Link>
-                    </div>
-                    <div className="mt-2.5 grid flex-1 grid-cols-2 gap-2">
-                      <SkillTile to="/instagram" icon={Camera} label="Reels" sub="Instagram" />
-                      <SkillTile to="/youtube" icon={MonitorPlay} label="Shorts" sub="YouTube" />
-                      <SkillTile to="/design" icon={Palette} label="Covers" sub="Thumbnails" />
-                      <SkillTile to="/trends" icon={TrendingUp} label="Trends" sub="Live signals" />
-                    </div>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-9">
+                  <div className="sm:col-span-2 lg:col-span-3 lg:row-span-2">
+                    <PromoCard onStart={focusComposer} />
                   </div>
-
-                  <StudioCard
-                    to="/video-studio"
-                    icon={Clapperboard}
-                    title="Video production"
-                    description="Storyboard, voiceover and render, stage by stage."
-                    art={STUDIO_ART.blue}
-                    chip="13 stages"
-                  />
-                  <StudioCard
-                    to="/design"
-                    icon={Palette}
-                    title="Design studio"
-                    description="Covers, thumbnails and templates that fit your brand."
-                    art={STUDIO_ART.violet}
-                    chip="Covers · thumbs"
-                  />
-                  <StudioCard
-                    to="/trends"
-                    icon={TrendingUp}
-                    title="Trend radar"
-                    description="Signals ranked by momentum, with sources to verify."
-                    art={STUDIO_ART.ember}
-                    chip="Live feed"
-                  />
+                  {STUDIO_TOOLS.map((tool) => (
+                    <div key={tool.to} className="lg:col-span-2">
+                      <ToolTile {...tool} />
+                    </div>
+                  ))}
                 </div>
               </section>
 
-              <section className="mt-11" aria-label="Your productions">
-                <div className="flex flex-wrap items-end justify-between gap-3">
-                  <div>
-                    <h2 className="font-display text-[16px] font-medium tracking-tight text-txt">Your productions</h2>
-                    <p className="mt-0.5 text-[11px] text-txt-faint">
+              <section className="mt-7" aria-label="Your productions">
+                <div className="rounded-[22px] border border-white/[0.08] bg-[#080b10]/70 p-3 backdrop-blur-sm sm:p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div
+                      role="tablist"
+                      aria-label="Production filter"
+                      className="flex items-center gap-1 rounded-full border border-white/[0.07] bg-white/[0.02] p-1"
+                    >
+                      {SHELF_TABS.map((tab) => (
+                        <button
+                          key={tab.id}
+                          role="tab"
+                          aria-selected={shelfTab === tab.id}
+                          onClick={() => setShelfTab(tab.id)}
+                          className={cx(
+                            'rounded-full px-3 py-1.5 text-[11.5px] transition-colors',
+                            shelfTab === tab.id ? 'bg-white text-[#0a0d12]' : 'text-txt-muted hover:text-txt',
+                          )}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <label className="relative order-last w-full sm:order-none sm:ml-auto sm:w-[200px]">
+                      <Search
+                        className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-txt-faint"
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">Search productions</span>
+                      <input
+                        value={shelfQuery}
+                        onChange={(e) => setShelfQuery(e.target.value)}
+                        placeholder="Search productions"
+                        className="h-8 w-full rounded-full border border-white/[0.08] bg-white/[0.03] pl-8 pr-3 text-[11.5px] text-txt placeholder:text-txt-faint transition-colors hover:border-white/15 focus:border-cyan/40 focus:outline-none"
+                      />
+                    </label>
+
+                    {shelfProjects.length > 3 ? (
+                      <div className="hidden items-center gap-1 md:flex">
+                        <button
+                          type="button"
+                          onClick={() => feedRef.current?.scrollBy({ left: -600, behavior: 'smooth' })}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-txt-muted transition-colors hover:border-white/15 hover:text-txt"
+                          aria-label="Scroll productions left"
+                        >
+                          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => feedRef.current?.scrollBy({ left: 600, behavior: 'smooth' })}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-txt-muted transition-colors hover:border-white/15 hover:text-txt"
+                          aria-label="Scroll productions right"
+                        >
+                          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={focusComposer}
+                      className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-white px-3 text-[11.5px] font-semibold text-[#0a0d12] transition-colors hover:bg-white/90"
+                    >
+                      <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
+                      New production
+                    </button>
+                  </div>
+
+                  <div ref={feedRef} className="scroll-thin mt-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-0.5 pb-2">
+                    {shelfProjects.map((item) => (
+                      <PosterCard key={item.id} project={item} />
+                    ))}
+                    {!shelfProjects.length ? (
+                      <div className="flex w-full flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.1] bg-white/[0.015] px-6 py-12 text-center">
+                        <p className="text-[12.5px] text-txt-muted">
+                          {shelfQuery.trim()
+                            ? 'No productions match that search.'
+                            : shelfTab === 'producing'
+                              ? 'Nothing is producing right now.'
+                              : shelfTab === 'approval'
+                                ? 'Nothing is waiting for approval.'
+                                : 'No productions yet.'}
+                        </p>
+                        <p className="mt-1 max-w-[42ch] text-[11px] leading-relaxed text-txt-faint">
+                          Describe a brief above — every production and its status lands here.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-1 flex flex-wrap items-center justify-between gap-2 px-1">
+                    <p className="text-[10px] text-txt-faint">
                       {runningCount} producing · {approvalCount} awaiting approval · {state.projects.length} total
                     </p>
+                    <Link
+                      to="/productions"
+                      className="inline-flex items-center gap-1 text-[10.5px] text-txt-faint transition-colors hover:text-txt"
+                    >
+                      <FolderOpen className="h-3 w-3" aria-hidden="true" /> All productions
+                      <ArrowRight className="h-3 w-3" aria-hidden="true" />
+                    </Link>
                   </div>
-                  <Link
-                    to="/productions"
-                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-txt-faint transition-colors hover:text-txt"
-                  >
-                    All productions <ArrowRight className="h-3 w-3" aria-hidden="true" />
-                  </Link>
-                </div>
-
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <div
-                    role="tablist"
-                    aria-label="Production filter"
-                    className="flex items-center gap-1 rounded-full border border-white/[0.07] bg-white/[0.02] p-1"
-                  >
-                    {SHELF_TABS.map((tab) => (
-                      <button
-                        key={tab.id}
-                        role="tab"
-                        aria-selected={shelfTab === tab.id}
-                        onClick={() => setShelfTab(tab.id)}
-                        className={cx(
-                          'rounded-full px-3 py-1.5 text-[11.5px] transition-colors',
-                          shelfTab === tab.id ? 'bg-white text-[#0a0d12]' : 'text-txt-muted hover:text-txt',
-                        )}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <label className="relative order-last w-full sm:order-none sm:ml-auto sm:w-[220px]">
-                    <Search
-                      className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-txt-faint"
-                      aria-hidden="true"
-                    />
-                    <span className="sr-only">Search productions</span>
-                    <input
-                      value={shelfQuery}
-                      onChange={(e) => setShelfQuery(e.target.value)}
-                      placeholder="Search productions"
-                      className="h-8 w-full rounded-full border border-white/[0.08] bg-white/[0.03] pl-8 pr-3 text-[11.5px] text-txt placeholder:text-txt-faint transition-colors hover:border-white/15 focus:border-cyan/40 focus:outline-none"
-                    />
-                  </label>
-
-                  <Link
-                    to="/library"
-                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-[11.5px] text-txt-muted transition-colors hover:border-white/15 hover:text-txt"
-                  >
-                    <FolderOpen className="h-3.5 w-3.5" aria-hidden="true" /> Library
-                  </Link>
-                </div>
-
-                <div className="mt-3 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3 xl:grid-cols-4">
-                  {shelfProjects.map((item) => (
-                    <ProductionTile key={item.id} project={item} />
-                  ))}
-                  {!shelfProjects.length ? (
-                    <div className="col-span-full flex flex-col items-center justify-center rounded-2xl border border-dashed border-white/[0.1] bg-white/[0.015] px-6 py-10 text-center">
-                      <p className="text-[12.5px] text-txt-muted">
-                        {shelfQuery.trim()
-                          ? 'No productions match that search.'
-                          : shelfTab === 'producing'
-                            ? 'Nothing is producing right now.'
-                            : shelfTab === 'approval'
-                              ? 'Nothing is waiting for approval.'
-                              : 'No productions yet.'}
-                      </p>
-                      <p className="mt-1 max-w-[42ch] text-[11px] leading-relaxed text-txt-faint">
-                        Describe a brief above — every production and its status lands here.
-                      </p>
-                    </div>
-                  ) : null}
                 </div>
               </section>
 
@@ -590,94 +624,99 @@ export default function WorkspacePage() {
   )
 }
 
-function SkillTile({ to, icon: Icon, label, sub }: { to: string; icon: LucideIcon; label: string; sub: string }) {
+function PromoCard({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="relative flex min-h-[150px] flex-col overflow-hidden rounded-2xl border border-white/[0.08] p-4">
+      <span className="absolute inset-0" style={{ background: PROMO_ART }} aria-hidden="true" />
+      <span className="relative self-start rounded-md border border-white/15 bg-black/30 px-1.5 py-0.5 font-mono text-[8.5px] uppercase tracking-[0.16em] text-white/70">
+        Demo engine
+      </span>
+      <div className="relative mt-auto pt-4">
+        <p className="font-display text-[19px] font-medium leading-tight tracking-tight text-white sm:text-[21px]">
+          Studio 1.0, fully open
+        </p>
+        <p className="mt-1 max-w-[34ch] text-[11px] leading-relaxed text-white/60">
+          Research, script, voice, visuals and QC — simulated locally for your approval.
+        </p>
+        <button
+          type="button"
+          onClick={onStart}
+          className="mt-3 inline-flex h-7 items-center gap-1.5 rounded-lg bg-white px-2.5 text-[11px] font-semibold text-[#0a0d12] transition-colors hover:bg-white/90"
+        >
+          Start a brief <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ToolTile({ to, icon: Icon, title, sub, art }: { to: string; icon: LucideIcon; title: string; sub: string; art: string }) {
   return (
     <Link
       to={to}
-      className="group flex min-w-0 items-center gap-2 rounded-xl border border-white/[0.06] bg-[#0b0f15]/80 px-2 py-2 transition-colors hover:border-white/15 hover:bg-white/[0.045]"
+      className="group flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 transition-colors hover:border-white/[0.16] hover:bg-white/[0.05]"
     >
+      <span className="min-w-0">
+        <span className="block truncate text-[12.5px] font-medium text-txt">{title}</span>
+        <span className="mt-0.5 block truncate text-[10px] text-txt-faint">{sub}</span>
+      </span>
       <span
-        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] text-white/85"
-        style={{ background: 'linear-gradient(150deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02))' }}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 text-white/85"
+        style={{ background: art }}
       >
         <Icon className="h-4 w-4" aria-hidden="true" />
       </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[11.5px] font-medium text-txt">{label}</span>
-        <span className="block truncate text-[9.5px] text-txt-faint">{sub}</span>
-      </span>
     </Link>
   )
 }
 
-function StudioCard({
-  to,
-  icon: Icon,
-  title,
-  description,
-  art,
-  chip,
-}: {
-  to: string
-  icon: LucideIcon
-  title: string
-  description: string
-  art: string
-  chip: string
-}) {
-  return (
-    <Link
-      to={to}
-      className="group relative flex min-h-[168px] flex-col overflow-hidden rounded-2xl border border-white/[0.08] p-3.5 transition-all duration-200 hover:-translate-y-0.5 hover:border-white/20"
-    >
-      <span className="absolute inset-0" style={{ background: art }} aria-hidden="true" />
-      <span className="relative flex items-start justify-between gap-2">
-        <span className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 font-mono text-[8.5px] uppercase tracking-[0.12em] text-white/70">
-          {chip}
-        </span>
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/15 bg-black/25 text-white/85 backdrop-blur-sm transition-colors group-hover:border-white/30">
-          <Icon className="h-4 w-4" aria-hidden="true" />
-        </span>
-      </span>
-      <span className="relative mt-auto pt-8">
-        <span className="block font-display text-[14px] font-medium tracking-tight text-white">{title}</span>
-        <span className="mt-0.5 block text-[11px] leading-snug text-white/60">{description}</span>
-      </span>
-    </Link>
-  )
-}
-
-function ProductionTile({ project }: { project: Project }) {
+function PosterCard({ project }: { project: Project }) {
+  const [imgFailed, setImgFailed] = useState(false)
   const progress = overallProgress(project)
+  const thumb = project.artifacts?.thumbnailDataUrl
+  const showThumb = Boolean(thumb) && !imgFailed
   return (
-    <Link
-      to={`/productions/${project.id}`}
-      className="group overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.02] transition-colors hover:border-white/[0.16]"
-    >
-      <div className="relative aspect-[16/10] overflow-hidden" style={{ background: platformArt(project.platform) }}>
-        <div className="absolute inset-0 bg-dot opacity-[0.12]" aria-hidden="true" />
-        <span className="absolute left-2 top-2">
-          <StatusPill status={project.approved ? 'approved' : project.status} />
-        </span>
-        <span className="absolute right-2 top-2 rounded-md bg-black/45 px-1.5 py-0.5 font-mono text-[9px] text-white/80 tnum">
-          {project.status === 'completed' ? '100%' : `${Math.round(progress * 100)}%`}
-        </span>
-        <span className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-gradient-to-t from-black/60 to-transparent px-2.5 pb-2 pt-6">
-          <span className="text-[10px] text-white/70">{project.demo ? 'Simulated render' : 'Agentic render'}</span>
-          <ArrowRight
-            className="h-3.5 w-3.5 text-white/70 transition-transform group-hover:translate-x-0.5"
-            aria-hidden="true"
+    <Link to={`/productions/${project.id}`} className="group w-[272px] shrink-0 snap-start sm:w-[300px]">
+      <div
+        className="relative aspect-[16/11] overflow-hidden rounded-2xl border border-white/[0.07]"
+        style={{ background: platformArt(project.platform) }}
+      >
+        {showThumb ? (
+          <img
+            src={thumb}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            onError={() => setImgFailed(true)}
           />
+        ) : (
+          <>
+            <span className="absolute inset-0 bg-dot opacity-[0.14]" aria-hidden="true" />
+            <span className="absolute inset-0 flex items-center justify-center" aria-hidden="true">
+              <Film className="h-7 w-7 text-white/15" />
+            </span>
+          </>
+        )}
+        <span className="absolute inset-x-0 top-0 flex items-start justify-between gap-2 bg-gradient-to-b from-black/55 to-transparent p-2.5">
+          <StatusPill status={project.approved ? 'approved' : project.status} />
+          <span className="rounded-md bg-black/45 px-1.5 py-0.5 font-mono text-[9px] text-white/80 tnum">
+            {project.status === 'completed' ? '100%' : `${Math.round(progress * 100)}%`}
+          </span>
+        </span>
+        <span className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-2 bg-gradient-to-t from-black/75 via-black/30 to-transparent px-2.5 pb-2.5 pt-8">
+          <span className="min-w-0">
+            <span className="block truncate text-[12px] font-medium text-white" title={project.title}>
+              {project.title}
+            </span>
+            <span className="mt-0.5 block truncate text-[9.5px] text-white/60">
+              {showThumb ? 'Simulated render' : 'Artwork not generated yet'}
+            </span>
+          </span>
+          <Play className="h-3.5 w-3.5 shrink-0 text-white/70" aria-hidden="true" />
         </span>
       </div>
-      <div className="p-2.5">
-        <p className="truncate text-[12px] text-txt" title={project.title}>
-          {project.title}
-        </p>
-        <p className="mt-0.5 truncate text-[10px] text-txt-faint">
-          {platformLabel(project.platform)} · {relativeTime(project.updatedAt)}
-        </p>
-      </div>
+      <p className="mt-1.5 truncate px-0.5 text-[10px] text-txt-faint">
+        {platformLabel(project.platform)} · {relativeTime(project.updatedAt)}
+      </p>
     </Link>
   )
 }

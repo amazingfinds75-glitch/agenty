@@ -58,7 +58,7 @@ export function Sidebar({
     return () => document.removeEventListener('keydown', onKey)
   }, [mobileOpen, onMobileClose])
 
-  const content = (
+  const renderContent = (collapsed: boolean) => (
     <div className="flex h-full min-h-[480px] flex-col">
       <div className={cx('flex h-[62px] items-center gap-2 border-b border-white/[0.06] px-4', collapsed && 'justify-center px-0')}>
         <NavLink to="/" className="min-w-0 focus-ring rounded-md" aria-label="AI Viral Studio home">
@@ -268,7 +268,7 @@ export function Sidebar({
         )}
         aria-label="Sidebar"
       >
-        {content}
+        {renderContent(collapsed)}
       </aside>
 
       <div
@@ -290,7 +290,7 @@ export function Sidebar({
           )}
           aria-label="Mobile navigation"
         >
-          {content}
+          {renderContent(false)}
         </aside>
       </div>
     </>

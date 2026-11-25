@@ -113,7 +113,7 @@ function ChipSelect({
           'appearance-none border border-white/[0.08] bg-white/[0.03] transition-colors hover:border-white/15 hover:text-txt focus:border-cyan/40 focus:outline-none',
           size === 'sm'
             ? 'h-7 rounded-md pl-2 pr-6 text-[11px] text-txt-muted'
-            : 'h-8 rounded-full bg-white/[0.05] pl-3 pr-7 text-[11.5px] text-txt hover:bg-white/[0.08]',
+            : 'h-8 rounded-lg bg-white/[0.04] pl-3 pr-7 text-[11.5px] text-txt hover:bg-white/[0.07]',
           active && 'border-cyan/25 bg-cyan/[0.07] text-cyan',
         )}
       >
@@ -234,7 +234,7 @@ export function Composer({
       {studio ? (
         <div
           className={cx(
-            'studio-shell relative rounded-[26px] p-2 sm:p-3',
+            'studio-shell relative rounded-2xl p-2 sm:p-2.5',
             dragging && 'border-[#b7ff3c]/50 ring-2 ring-[#b7ff3c]/15',
           )}
         >
@@ -244,7 +244,7 @@ export function Composer({
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
-              className="mt-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.05] text-txt-muted transition-colors hover:border-white/15 hover:bg-white/[0.09] hover:text-txt"
+              className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.05] text-txt-muted transition-colors hover:border-white/15 hover:bg-white/[0.09] hover:text-txt"
               aria-label="Add reference files"
               title="Add image, video or document"
             >
@@ -258,7 +258,7 @@ export function Composer({
               ref={textareaRef}
               autoFocus={autoFocus}
               value={text}
-              rows={2}
+              rows={1}
               onChange={(e) => {
                 setText(e.target.value)
                 resize()
@@ -269,13 +269,13 @@ export function Composer({
                   submit()
                 }
               }}
-              placeholder="Describe the video, reel or campaign you need — topic, hook, platform, language…"
-              className="scroll-thin min-h-[88px] w-full flex-1 resize-none bg-transparent px-2 py-3 text-[16px] leading-relaxed text-txt placeholder:text-txt-faint focus:outline-none sm:text-[15.5px]"
+              placeholder="Describe the video or reel — topic, platform…"
+              className="scroll-thin min-h-[70px] w-full flex-1 resize-none bg-transparent px-2 py-2.5 text-[16px] leading-relaxed text-txt placeholder:text-txt-faint focus:outline-none sm:min-h-[52px] sm:text-[15px]"
               style={{ maxHeight: 176 }}
             />
           </div>
 
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 px-0.5 pb-0.5 sm:gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 border-t border-white/[0.06] px-0.5 pt-2 pb-0.5 sm:gap-2">
             <ChipSelect
               size="md"
               label="Platform"
@@ -292,7 +292,7 @@ export function Composer({
               active={language !== 'auto'}
               onChange={(v) => setLanguage(v as Language | 'auto')}
             />
-            <span className="hidden items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.03] px-2.5 py-1.5 text-[10.5px] text-txt-faint md:inline-flex">
+            <span className="hidden items-center gap-1.5 rounded-lg border border-white/[0.07] bg-white/[0.03] px-2.5 py-1.5 text-[10.5px] text-txt-faint md:inline-flex">
               <Sparkles className="h-3 w-3" aria-hidden="true" />
               12 agents · 13 stages
             </span>
@@ -312,9 +312,9 @@ export function Composer({
               type="submit"
               disabled={!canSend}
               className={cx(
-                'ml-auto inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-4 text-[12.5px] font-semibold transition-all duration-200',
+                'ml-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-4 text-[12px] font-semibold transition-all duration-200',
                 canSend
-                  ? 'bg-[#B7FF3C] text-[#0B1206] shadow-[0_12px_30px_-14px_rgba(183,255,60,0.85)] hover:brightness-105 active:scale-[0.98]'
+                  ? 'bg-[#B7FF3C] text-[#0B1206] shadow-[0_10px_26px_-14px_rgba(183,255,60,0.85)] hover:brightness-105 active:scale-[0.98]'
                   : 'cursor-not-allowed bg-[#B7FF3C]/40 text-[#0B1206]/60 shadow-none',
               )}
             >
@@ -454,11 +454,6 @@ export function Composer({
         </div>
       ) : null}
 
-      {studio ? (
-        <p className="mt-2.5 text-center text-[10px] text-txt-faint">
-          Enter to send · Shift + Enter for a new line · outputs are simulated
-        </p>
-      ) : null}
     </form>
   )
 }
