@@ -1,5 +1,6 @@
 import http from 'node:http'
 import os from 'node:os'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve, sep } from 'node:path'
@@ -8,10 +9,31 @@ import { flushAllStores } from './lib/store.mjs'
 import { getCacheSummary, getLiveTrends, getSignalHistory, getSourceStatuses } from './lib/sources.mjs'
 import { getAIStatus, runAnalysis } from './lib/ai.mjs'
 import { createVideoJob, getVideoJob, getVideoStatus, listVideoJobs } from './lib/video.mjs'
-import { truncate } from './lib/util.mjs'
+import { clamp, truncate } from './lib/util.mjs'
 
 const startTime = Date.now()
 const DIST = join(ROOT, 'dist')
+const API_TOKEN = (process.env.API_TOKEN ?? '').trim()
+const CORS_ORIGIN = (process.env.CORS_ORIGIN ?? '').trim()
+
+// The bundled SPA ships no remote scripts. Inline styles are required because
+// components set React style attributes; everything else stays same-origin.
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https:",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+].join('; ')
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -28,24 +50,91 @@ const MIME = {
   '.map': 'application/json; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
 }
-const analysisHits = new Map()
 
-function headers(extra = {}) {
+const RATE_LIMITS = {
+  api: { windowMs: 60_000, max: 240 },
+  analyze: { windowMs: 60_000, max: 8 },
+  video: { windowMs: 60_000, max: 6 },
+}
+const rateBuckets = new Map()
+
+function clientIp(req) {
+  return req.socket.remoteAddress ?? 'local'
+}
+
+function rateLimited(req, name) {
+  const spec = RATE_LIMITS[name]
+  const key = `${name}:${clientIp(req)}`
+  const now = Date.now()
+  const hits = (rateBuckets.get(key) ?? []).filter((at) => now - at < spec.windowMs)
+  if (hits.length >= spec.max) {
+    rateBuckets.set(key, hits)
+    return true
+  }
+  hits.push(now)
+  rateBuckets.set(key, hits)
+  if (rateBuckets.size > 2000) pruneBuckets(now)
+  return false
+}
+
+function pruneBuckets(now) {
+  for (const [key, hits] of rateBuckets) {
+    const spec = RATE_LIMITS[key.slice(0, key.indexOf(':'))]
+    if (!hits.some((at) => now - at < (spec?.windowMs ?? 60_000))) rateBuckets.delete(key)
+  }
+}
+
+function safeEqual(a, b) {
+  const left = createHash('sha256').update(String(a)).digest()
+  const right = createHash('sha256').update(String(b)).digest()
+  return timingSafeEqual(left, right)
+}
+
+function writeAuthorized(req) {
+  if (!API_TOKEN) return true
+  const header = String(req.headers.authorization ?? '')
+  const match = header.match(/^Bearer\s+(.+)$/i)
+  return Boolean(match) && safeEqual(match[1].trim(), API_TOKEN)
+}
+
+function securityHeaders(req, extra = {}) {
+  const secure = Boolean(req.socket.encrypted) || req.headers['x-forwarded-proto'] === 'https'
   return {
-    'cache-control': 'no-store',
+    'content-security-policy': CSP,
     'x-content-type-options': 'nosniff',
-    ...(process.env.CORS_ORIGIN ? { 'access-control-allow-origin': process.env.CORS_ORIGIN } : {}),
+    'x-frame-options': 'DENY',
+    'referrer-policy': 'no-referrer',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+    'cross-origin-opener-policy': 'same-origin',
+    'cross-origin-resource-policy': 'same-origin',
+    'x-dns-prefetch-control': 'off',
+    ...(secure ? { 'strict-transport-security': 'max-age=31536000; includeSubDomains' } : {}),
+    ...(CORS_ORIGIN ? { 'access-control-allow-origin': CORS_ORIGIN, vary: 'Origin' } : {}),
     ...extra,
   }
 }
 
-function json(res, status, data) {
+function json(req, res, status, data, extra = {}) {
   const body = JSON.stringify(data)
-  res.writeHead(status, headers({ 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body) }))
+  res.writeHead(
+    status,
+    securityHeaders(req, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-store',
+      ...extra,
+    }),
+  )
   res.end(body)
 }
 
 async function readBody(req) {
+  const type = String(req.headers['content-type'] ?? '')
+  if (!/^application\/json\b/i.test(type)) {
+    const error = new Error('Content-Type must be application/json')
+    error.statusCode = 415
+    throw error
+  }
   const chunks = []
   let size = 0
   for await (const chunk of req) {
@@ -58,23 +147,20 @@ async function readBody(req) {
     chunks.push(chunk)
   }
   if (!chunks.length) return {}
+  let parsed
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'))
   } catch {
     const error = new Error('Invalid JSON body')
     error.statusCode = 400
     throw error
   }
-}
-
-function limitAnalysis(req) {
-  const key = req.socket.remoteAddress ?? 'local'
-  const now = Date.now()
-  const hits = (analysisHits.get(key) ?? []).filter((at) => now - at < 60_000)
-  if (hits.length >= 8) return false
-  hits.push(now)
-  analysisHits.set(key, hits)
-  return true
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    const error = new Error('JSON body must be an object')
+    error.statusCode = 400
+    throw error
+  }
+  return parsed
 }
 
 function numberOrNull(value) {
@@ -105,13 +191,13 @@ async function serveStatic(req, res, pathname) {
   try {
     relative = pathname === '/' ? 'index.html' : decodeURIComponent(pathname).replace(/^\/+/, '')
   } catch {
-    json(res, 400, { ok: false, error: 'Malformed path' })
+    json(req, res, 400, { ok: false, error: 'Malformed path' })
     return
   }
   let file = resolve(DIST, relative)
   const inside = file === DIST || file.startsWith(`${DIST}${sep}`)
   if (!inside) {
-    json(res, 403, { ok: false, error: 'Forbidden' })
+    json(req, res, 403, { ok: false, error: 'Forbidden' })
     return
   }
   try {
@@ -119,13 +205,13 @@ async function serveStatic(req, res, pathname) {
     if (info.isDirectory()) file = join(file, 'index.html')
   } catch {
     if (relative.startsWith('assets/') || relative.includes('.')) {
-      json(res, 404, { ok: false, error: 'Not found' })
+      json(req, res, 404, { ok: false, error: 'Not found' })
       return
     }
     file = join(DIST, 'index.html')
   }
   if (!existsSync(file)) {
-    json(res, 503, {
+    json(req, res, 503, {
       ok: false,
       error: 'The app bundle is not built yet. Run "npm run build" and restart the server, or use "npm run dev" with the API server running.',
     })
@@ -133,11 +219,13 @@ async function serveStatic(req, res, pathname) {
   }
   const extension = extname(file).toLowerCase()
   const immutable = file.includes(`${sep}assets${sep}`)
-  res.writeHead(200, {
-    'content-type': MIME[extension] ?? 'application/octet-stream',
-    'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
-    'x-content-type-options': 'nosniff',
-  })
+  res.writeHead(
+    200,
+    securityHeaders(req, {
+      'content-type': MIME[extension] ?? 'application/octet-stream',
+      'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    }),
+  )
   if (req.method === 'HEAD') {
     res.end()
     return
@@ -146,17 +234,38 @@ async function serveStatic(req, res, pathname) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
-  const pathname = url.pathname
+  let pathname = '/'
   try {
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    pathname = url.pathname
+
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, headers({ 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type' }))
+      res.writeHead(
+        204,
+        securityHeaders(req, {
+          'cache-control': 'no-store',
+          ...(CORS_ORIGIN
+            ? { 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type, authorization' }
+            : {}),
+        }),
+      )
       res.end()
       return
     }
 
+    if (pathname.startsWith('/api/') || pathname === '/api') {
+      if (rateLimited(req, 'api')) {
+        json(req, res, 429, { ok: false, error: 'Too many requests. Slow down and retry shortly.' })
+        return
+      }
+      if (req.method === 'POST' && !writeAuthorized(req)) {
+        json(req, res, 401, { ok: false, error: 'Missing or invalid API token.' }, { 'www-authenticate': 'Bearer' })
+        return
+      }
+    }
+
     if (pathname === '/api' && req.method === 'GET') {
-      json(res, 200, {
+      json(req, res, 200, {
         ok: true,
         name: 'AI Viral Studio live backend',
         version: VERSION,
@@ -170,6 +279,7 @@ const server = http.createServer(async (req, res) => {
           'GET /api/video/jobs/:id',
         ],
         note: 'Scores, analysis and chart history are computed locally. Publishing is not implemented.',
+        auth: API_TOKEN ? 'Write endpoints require "Authorization: Bearer <API_TOKEN>".' : 'No API token configured; keep this server on a trusted network.',
       })
       return
     }
@@ -178,7 +288,7 @@ const server = http.createServer(async (req, res) => {
       const ai = getAIStatus()
       const video = getVideoStatus()
       const summary = getCacheSummary()
-      json(res, 200, {
+      json(req, res, 200, {
         ok: true,
         name: 'AI Viral Studio live backend',
         version: VERSION,
@@ -219,7 +329,7 @@ const server = http.createServer(async (req, res) => {
       const geo = /^[A-Z]{2}$/.test(geoParam) ? geoParam : CONFIG.geo
       const force = url.searchParams.get('refresh') === '1' || url.searchParams.get('refresh') === 'true'
       const data = await getLiveTrends({ geo, force })
-      json(res, data.ok ? 200 : 502, data)
+      json(req, res, data.ok ? 200 : 502, data)
       return
     }
 
@@ -227,44 +337,48 @@ const server = http.createServer(async (req, res) => {
       const key = url.searchParams.get('key') ?? ''
       const geoParam = (url.searchParams.get('geo') ?? '').toUpperCase()
       const geo = /^[A-Z]{2}$/.test(geoParam) ? geoParam : CONFIG.geo
-      const hours = numberOrNull(url.searchParams.get('hours')) ?? 24
+      const hours = clamp(numberOrNull(url.searchParams.get('hours')) ?? 24, 1, 168)
       const history = await getSignalHistory(key, { geo, hours })
       if (!history) {
-        json(res, 404, { ok: false, error: 'No history recorded for that signal yet.' })
+        json(req, res, 404, { ok: false, error: 'No history recorded for that signal yet.' })
         return
       }
-      json(res, 200, history)
+      json(req, res, 200, history)
       return
     }
 
     if ((pathname === '/api/live/analyze' || pathname === '/api/ai/analyze' || pathname === '/api/trends/analyze') && req.method === 'POST') {
-      if (!limitAnalysis(req)) {
-        json(res, 429, { ok: false, error: 'Analysis is limited to 8 requests per minute.' })
+      if (rateLimited(req, 'analyze')) {
+        json(req, res, 429, { ok: false, error: 'Analysis is limited to 8 requests per minute.' })
         return
       }
       const body = await readBody(req)
       const input = analysisInput(body)
       if (!input.topic) {
-        json(res, 400, { ok: false, error: 'A topic is required.' })
+        json(req, res, 400, { ok: false, error: 'A topic is required.' })
         return
       }
       const result = await runAnalysis(input)
-      json(res, 200, { ok: true, ...result })
+      json(req, res, 200, { ok: true, ...result })
       return
     }
 
     if (pathname === '/api/video/jobs' && req.method === 'GET') {
-      json(res, 200, { ok: true, video: getVideoStatus(), jobs: await listVideoJobs() })
+      json(req, res, 200, { ok: true, video: getVideoStatus(), jobs: await listVideoJobs() })
       return
     }
 
     if (pathname === '/api/video/jobs' && req.method === 'POST') {
+      if (rateLimited(req, 'video')) {
+        json(req, res, 429, { ok: false, error: 'Video jobs are limited to 6 requests per minute.' })
+        return
+      }
       const body = await readBody(req)
       try {
         const job = await createVideoJob({ prompt: body?.prompt, aspectRatio: body?.aspectRatio })
-        json(res, 202, { ok: true, job })
+        json(req, res, 202, { ok: true, job })
       } catch (error) {
-        json(res, error.statusCode ?? 500, {
+        json(req, res, error.statusCode ?? 500, {
           ok: false,
           error: error.message,
           ...(error.payload ?? {}),
@@ -277,15 +391,15 @@ const server = http.createServer(async (req, res) => {
     if (jobMatch && req.method === 'GET') {
       const job = await getVideoJob(jobMatch[1])
       if (!job) {
-        json(res, 404, { ok: false, error: 'Video job not found.' })
+        json(req, res, 404, { ok: false, error: 'Video job not found.' })
         return
       }
-      json(res, 200, { ok: true, job })
+      json(req, res, 200, { ok: true, job })
       return
     }
 
     if (pathname.startsWith('/api/')) {
-      json(res, 404, { ok: false, error: 'Unknown API route.' })
+      json(req, res, 404, { ok: false, error: 'Unknown API route.' })
       return
     }
 
@@ -294,14 +408,19 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    json(res, 405, { ok: false, error: 'Method not allowed.' })
+    json(req, res, 405, { ok: false, error: 'Method not allowed.' })
   } catch (error) {
-    const status = error?.statusCode ?? 500
+    const status = Number(error?.statusCode) || 500
     if (status >= 500) console.error('[api]', error)
-    if (!res.headersSent) json(res, status, { ok: false, error: error?.message ?? 'Server error' })
+    if (!res.headersSent) json(req, res, status, { ok: false, error: status >= 500 ? 'Server error' : error?.message ?? 'Request failed' })
     else res.end()
   }
 })
+
+server.headersTimeout = 15_000
+server.requestTimeout = 30_000
+server.keepAliveTimeout = 5_000
+server.maxHeadersCount = 100
 
 function lanAddresses() {
   return Object.values(os.networkInterfaces())
@@ -333,8 +452,10 @@ server.listen(CONFIG.port, CONFIG.host, () => {
     } else {
       console.log('  bound to all interfaces, but no LAN address was found.')
     }
-    if (ai.configured || video.configured) {
-      console.log('  note: the API has no login. Use a trusted network only while keys are configured.')
+    if (API_TOKEN) {
+      console.log('  write endpoints require "Authorization: Bearer <API_TOKEN>".')
+    } else {
+      console.log('  warning: no API_TOKEN set. Anyone on this network can create video jobs and run analysis.')
     }
   } else {
     console.log('  local only. Set HOST=0.0.0.0 in .env to open it from another device on your network.')
