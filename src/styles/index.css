@@ -200,7 +200,7 @@ button {
   }
 
   .workspace-shell {
-    height: calc(100dvh - 62px);
+    height: calc(100dvh - var(--topbar-h, 62px));
   }
   @media (max-width: 1023.98px) {
     .workspace-shell {
@@ -325,6 +325,34 @@ button {
       0 0 0 1px rgba(0, 212, 255, 0.16),
       0 40px 90px -50px rgba(0, 0, 0, 1),
       0 0 80px -26px rgba(0, 212, 255, 0.4);
+  }
+
+  .studio-shell {
+    background: linear-gradient(180deg, rgba(22, 26, 33, 0.64), rgba(9, 12, 17, 0.8));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.07) inset,
+      0 40px 90px -55px rgba(0, 0, 0, 1),
+      0 0 90px -45px rgba(120, 170, 255, 0.35);
+    backdrop-filter: blur(26px) saturate(130%);
+    -webkit-backdrop-filter: blur(26px) saturate(130%);
+    transition: border-color 240ms, box-shadow 240ms;
+  }
+  .studio-shell:focus-within {
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.09) inset,
+      0 40px 90px -55px rgba(0, 0, 0, 1),
+      0 0 100px -40px rgba(120, 170, 255, 0.45);
+  }
+
+  .studio-aurora {
+    background:
+      radial-gradient(52% 48% at 50% 12%, rgba(43, 92, 255, 0.42), transparent 70%),
+      radial-gradient(34% 34% at 12% 66%, rgba(255, 118, 54, 0.18), transparent 72%),
+      radial-gradient(40% 38% at 90% 58%, rgba(139, 92, 246, 0.26), transparent 74%),
+      radial-gradient(50% 40% at 50% 100%, rgba(0, 212, 255, 0.1), transparent 70%);
+    filter: saturate(115%);
   }
 
   .video-frame {

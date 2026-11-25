@@ -214,9 +214,9 @@ export function AICore({ activity = 'idle', quality = 'balanced', reducedMotion 
       },
       {
         config: {
-          position: [4.6, 0.6, -1.4],
-          rotation: [0.03, -0.7, 0.1],
-          scale: [3.0, 4.4, 0.05],
+          position: [5.5, 0.7, -2.3],
+          rotation: [0.03, -0.72, 0.1],
+          scale: [2.5, 3.7, 0.05],
           tint: '#35617c',
           accent: 'cyan',
           transmission: 0.82,
@@ -225,9 +225,9 @@ export function AICore({ activity = 'idle', quality = 'balanced', reducedMotion 
       },
       {
         config: {
-          position: [-4.7, -0.1, -1.0],
-          rotation: [0.02, 0.7, -0.08],
-          scale: [2.7, 3.8, 0.05],
+          position: [-5.5, -0.1, -2.1],
+          rotation: [0.02, 0.72, -0.08],
+          scale: [2.4, 3.4, 0.05],
           tint: '#413567',
           accent: 'violet',
           transmission: 0.82,

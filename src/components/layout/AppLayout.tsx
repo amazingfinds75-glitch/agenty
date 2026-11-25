@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { pageTitle } from '../../lib/nav'
 import { cx } from '../../lib/utils'
@@ -15,6 +15,7 @@ export function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const location = useLocation()
   const firstRender = useRef(true)
+  const isHome = location.pathname === '/'
 
   useEffect(() => {
     const meta = pageTitle(location.pathname)
@@ -47,7 +48,10 @@ export function AppLayout() {
   }, [])
 
   return (
-    <div className="app-bg noise relative min-h-dvh">
+    <div
+      className="app-bg noise relative min-h-dvh"
+      style={isHome ? ({ '--topbar-h': '0px' } as CSSProperties) : undefined}
+    >
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[120] focus:rounded-lg focus:bg-cyan focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#03131a]"
@@ -57,6 +61,7 @@ export function AppLayout() {
       <Sidebar
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(true)}
+        onExpand={() => setCollapsed(false)}
         mobileOpen={mobileOpen}
         onMobileClose={() => setMobileOpen(false)}
         onOpenPalette={() => setPaletteOpen(true)}
@@ -67,19 +72,21 @@ export function AppLayout() {
           collapsed ? 'lg:pl-[74px]' : 'lg:pl-[252px]',
         )}
       >
-        <TopBar
-          onOpenMobile={() => setMobileOpen(true)}
-          onOpenPalette={() => setPaletteOpen(true)}
-          collapsed={collapsed}
-          onExpand={() => setCollapsed(false)}
-        />
+        <div className={isHome ? 'lg:hidden' : undefined}>
+          <TopBar
+            onOpenMobile={() => setMobileOpen(true)}
+            onOpenPalette={() => setPaletteOpen(true)}
+            collapsed={collapsed}
+            onExpand={() => setCollapsed(false)}
+          />
+        </div>
         <main id="main-content" tabIndex={-1} className="flex min-h-0 flex-1 flex-col focus:outline-none">
           <div key={location.pathname} className="flex min-h-0 flex-1 flex-col animate-fade-in">
             <RouteBoundary routeKey={location.pathname}>
               <Outlet />
             </RouteBoundary>
           </div>
-          {location.pathname !== '/' && !location.pathname.startsWith('/c/') ? (
+          {!isHome && !location.pathname.startsWith('/c/') ? (
             <div className="h-[calc(58px+env(safe-area-inset-bottom))] shrink-0 lg:hidden" aria-hidden="true" />
           ) : null}
         </main>

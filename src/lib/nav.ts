@@ -36,6 +36,7 @@ import {
 export interface NavItem {
   to: string
   label: string
+  rail?: string
   icon: LucideIcon
   group: 'workspace' | 'create' | 'studios' | 'team'
   description: string
@@ -46,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/',
     label: 'New Chat',
+    rail: 'New',
     icon: Plus,
     group: 'workspace',
     description: 'Start a brief with the Executive Producer',
@@ -54,6 +56,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/history',
     label: 'Chat History',
+    rail: 'Chats',
     icon: History,
     group: 'workspace',
     description: 'Saved conversations and continuations',
@@ -61,6 +64,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/productions',
     label: 'Active Productions',
+    rail: 'Active',
     icon: Activity,
     group: 'workspace',
     description: 'Live pipeline, stages and agent work',
@@ -68,6 +72,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/videos',
     label: 'My Videos',
+    rail: 'Videos',
     icon: Film,
     group: 'create',
     description: 'Finished cuts and deliverables',
@@ -75,6 +80,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/trends',
     label: 'Trend Intelligence',
+    rail: 'Trends',
     icon: TrendingUp,
     group: 'create',
     description: 'Signals, sources and opportunities',
@@ -82,6 +88,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/calendar',
     label: 'Content Calendar',
+    rail: 'Calendar',
     icon: CalendarDays,
     group: 'create',
     description: 'Publishing plan across platforms',
@@ -89,6 +96,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/youtube',
     label: 'YouTube Studio',
+    rail: 'YouTube',
     icon: MonitorPlay,
     group: 'studios',
     description: 'Shorts and long-form metadata',
@@ -96,6 +104,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/instagram',
     label: 'Instagram Studio',
+    rail: 'Instagram',
     icon: Camera,
     group: 'studios',
     description: 'Reels, covers and captions',
@@ -103,6 +112,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/script',
     label: 'Script Studio',
+    rail: 'Script',
     icon: PenLine,
     group: 'studios',
     description: 'Hooks, scenes and narration',
@@ -110,6 +120,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/video-studio',
     label: 'Video Production',
+    rail: 'Video',
     icon: LayoutTemplate,
     group: 'studios',
     description: 'Storyboard, voiceover and render',
@@ -117,6 +128,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/design',
     label: 'Design Studio',
+    rail: 'Design',
     icon: Palette,
     group: 'studios',
     description: 'Thumbnails, covers and templates',
@@ -124,6 +136,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/team',
     label: 'AI Team',
+    rail: 'Team',
     icon: Users,
     group: 'team',
     description: 'The 12 specialists and producer',
@@ -131,6 +144,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/library',
     label: 'Media Library',
+    rail: 'Library',
     icon: Library,
     group: 'team',
     description: 'Generated and uploaded assets',

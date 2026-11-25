@@ -19,12 +19,14 @@ import { Avatar, Badge, IconButton } from '../ui'
 export function Sidebar({
   collapsed,
   onToggleCollapse,
+  onExpand,
   mobileOpen,
   onMobileClose,
   onOpenPalette,
 }: {
   collapsed: boolean
   onToggleCollapse: () => void
+  onExpand: () => void
   mobileOpen: boolean
   onMobileClose: () => void
   onOpenPalette: () => void
@@ -139,8 +141,10 @@ export function Sidebar({
                       end={item.end}
                       title={collapsed ? item.label : undefined}
                       className={cx(
-                        'group relative flex h-[34px] items-center gap-2.5 rounded-lg px-2.5 text-[12.5px] transition-colors duration-150',
-                        collapsed && 'justify-center px-0',
+                        'group relative flex rounded-lg text-[12.5px] transition-colors duration-150',
+                        collapsed
+                          ? 'h-9 justify-center px-0 lg:h-auto lg:flex-col lg:gap-1 lg:px-1 lg:py-1.5'
+                          : 'h-[34px] items-center gap-2.5 px-2.5',
                         active
                           ? 'bg-[linear-gradient(90deg,rgba(0,212,255,0.13),rgba(0,212,255,0.03))] font-medium text-txt'
                           : 'text-txt-muted hover:bg-white/[0.045] hover:text-txt',
@@ -153,7 +157,13 @@ export function Sidebar({
                         className={cx('h-[15px] w-[15px] shrink-0', active ? 'text-cyan' : 'text-txt-faint group-hover:text-txt-muted')}
                         aria-hidden="true"
                       />
-                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                      {collapsed ? (
+                        <span className="hidden max-w-full truncate text-[8.5px] leading-none tracking-tight lg:block">
+                          {item.rail ?? item.label}
+                        </span>
+                      ) : (
+                        <span className="truncate">{item.label}</span>
+                      )}
                       {!collapsed && count ? (
                         <span className="ml-auto rounded-full border border-cyan/20 bg-cyan/10 px-1.5 py-[1px] font-mono text-[9.5px] text-cyan">
                           {count}
@@ -169,6 +179,16 @@ export function Sidebar({
       </nav>
 
       <div className={cx('border-t border-white/[0.06] px-2 py-2.5', collapsed && 'px-1.5')}>
+        {collapsed ? (
+          <button
+            onClick={onExpand}
+            title="Expand sidebar"
+            aria-label="Expand sidebar"
+            className="mb-1.5 hidden h-8 w-full items-center justify-center rounded-lg text-txt-faint transition-colors hover:bg-white/[0.05] hover:text-txt lg:flex"
+          >
+            <PanelLeftOpen className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        ) : null}
         {!collapsed ? (
           <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-2">
             <Badge tone="cyan" mono className="shrink-0">
@@ -185,13 +205,17 @@ export function Sidebar({
           className={({ isActive }) =>
             cx(
               'flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[12px] transition-colors',
-              collapsed && 'justify-center px-0',
+              collapsed && 'justify-center px-0 lg:h-auto lg:flex-col lg:gap-1 lg:py-1.5',
               isActive ? 'bg-white/[0.06] text-txt' : 'text-txt-faint hover:bg-white/[0.04] hover:text-txt-muted',
             )
           }
         >
           <ClipboardCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          {!collapsed ? 'Verification' : null}
+          {collapsed ? (
+            <span className="hidden text-[8.5px] leading-none lg:block">Verify</span>
+          ) : (
+            'Verification'
+          )}
         </NavLink>
         <NavLink
           to="/settings"
@@ -199,13 +223,17 @@ export function Sidebar({
           className={({ isActive }) =>
             cx(
               'flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[12px] transition-colors',
-              collapsed && 'justify-center px-0',
+              collapsed && 'justify-center px-0 lg:h-auto lg:flex-col lg:gap-1 lg:py-1.5',
               isActive ? 'bg-white/[0.06] text-txt' : 'text-txt-faint hover:bg-white/[0.04] hover:text-txt-muted',
             )
           }
         >
           <SettingsIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          {!collapsed ? 'Settings' : null}
+          {collapsed ? (
+            <span className="hidden text-[8.5px] leading-none lg:block">Settings</span>
+          ) : (
+            'Settings'
+          )}
         </NavLink>
 
         <NavLink
@@ -272,9 +300,9 @@ export function Sidebar({
 export function useSidebarCollapsed() {
   const [collapsed, setCollapsed] = useState(() => {
     try {
-      return localStorage.getItem('avs-sidebar-collapsed') === '1'
+      return localStorage.getItem('avs-sidebar-collapsed') !== '0'
     } catch {
-      return false
+      return true
     }
   })
   useEffect(() => {
