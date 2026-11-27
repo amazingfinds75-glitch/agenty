@@ -8,12 +8,17 @@ const OUT = 'e2e-artifacts'
 mkdirSync(OUT, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
-async function call(method, path, body) {
+async function call(method, path, body, retries = 3) {
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: body ? { 'content-type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   })
+  // Write endpoints are rate limited to 8/minute; back off instead of failing the suite.
+  if (res.status === 429 && retries > 0) {
+    await sleep(20_000)
+    return call(method, path, body, retries - 1)
+  }
   const payload = await res.json().catch(() => null)
   if (!res.ok || payload?.ok === false) {
     throw new Error(`${method} ${path} -> ${res.status} ${payload?.error ?? ''}`)
@@ -31,6 +36,7 @@ async function waitFor(label, fn, timeoutMs, interval = 700) {
   throw new Error(`timeout: ${label}`)
 }
 
+const FINISHED = new Set(['awaiting_approval', 'approved', 'completed', 'failed'])
 const results = {}
 const assert = (condition, message) => {
   if (!condition) throw new Error(`assertion failed: ${message}`)
@@ -91,8 +97,18 @@ async function main() {
   results.agentFactory.retired = listed.status
 
   console.log('\n[2] improvement cycle: approve -> rollback')
-  const improvements = await call('GET', '/improvements')
-  const candidate = improvements.improvements.find((row) => row.status === 'proposed' && row.test?.passed)
+  const findCandidate = async () => {
+    const rows = await call('GET', '/improvements')
+    return rows.improvements.find((row) => row.status === 'proposed' && row.test?.passed) ?? null
+  }
+  let candidate = await findCandidate()
+  if (!candidate) {
+    // Each run consumes the pending proposals, so ask the engine to analyse the latest production.
+    const done = (await call('GET', '/productions?limit=50')).productions.find((row) => FINISHED.has(row.status))
+    assert(done, 'need a completed production to generate improvements')
+    await call('POST', `/productions/${done.id}/improve`, {})
+    candidate = await findCandidate()
+  }
   assert(candidate, 'need a proposed improvement with a passing test')
   const beforeAgent = await call('GET', `/agents/${candidate.agentId}`)
   const approved = await call('POST', `/improvements/${candidate.id}/approve`, { approver: 'e2e-runner' })
@@ -143,8 +159,11 @@ async function main() {
   }, 15000)
   results.controls = { id, platform: cancelled.platform, durationSec: cancelled.durationSec, finalStatus: cancelled.status }
 
-  console.log('\n[4] parallel execution evidence from the 30s Reel production')
-  const reel = (await call('GET', '/productions/prd_bcde759cf8e54494')).production
+  console.log('\n[4] parallel execution evidence from the latest completed production')
+  const summaries = (await call('GET', '/productions?limit=50')).productions
+  const completedSummary = summaries.find((row) => FINISHED.has(row.status))
+  assert(completedSummary, 'need a completed production to inspect parallelism (run scripts/e2e-reel.mjs first)')
+  const reel = (await call('GET', `/productions/${completedSummary.id}`)).production
   const intervals = reel.tasks.map((t) => ({ title: t.capability, start: Date.parse(t.startedAt), end: Date.parse(t.completedAt) }))
   let maxConcurrent = 0
   let overlappingPair = null
@@ -166,7 +185,7 @@ async function main() {
   assert(maxConcurrent >= 2, 'two tasks should overlap')
 
   console.log('\n[5] persisted event stream and memory totals')
-  const events = await call('GET', `/events?productionId=prd_bcde759cf8e54494&limit=300`)
+  const events = await call('GET', `/events?productionId=${reel.id}&limit=300`)
   const all = await call('GET', '/agents')
   const memoryTotal = all.agents.reduce((sum, a) => sum + (a.memoryCount ?? 0), 0)
   results.events = { count: events.events.length, lastSeq: events.seq, types: [...new Set(events.events.map((e) => e.type))].length }

@@ -54,11 +54,14 @@ const MIME = {
 }
 
 const RATE_LIMITS = {
-  api: { windowMs: 60_000, max: 240 },
+  // The workforce dashboard polls several read endpoints every few seconds;
+  // the cap leaves room for a few tabs while still bounding abuse.
+  api: { windowMs: 60_000, max: 600 },
   analyze: { windowMs: 60_000, max: 8 },
   video: { windowMs: 60_000, max: 6 },
 }
 const rateBuckets = new Map()
+const WRITE_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE'])
 
 function clientIp(req) {
   return req.socket.remoteAddress ?? 'local'
@@ -260,7 +263,7 @@ const server = http.createServer(async (req, res) => {
         json(req, res, 429, { ok: false, error: 'Too many requests. Slow down and retry shortly.' })
         return
       }
-      if (req.method === 'POST' && !writeAuthorized(req)) {
+      if (WRITE_METHODS.has(req.method) && !writeAuthorized(req)) {
         json(req, res, 401, { ok: false, error: 'Missing or invalid API token.' }, { 'www-authenticate': 'Bearer' })
         return
       }

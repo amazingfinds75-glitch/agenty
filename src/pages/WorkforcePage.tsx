@@ -72,6 +72,7 @@ import {
   uploadWorkforceRender,
   workforceArtifactUrl,
   workforceErrorMessage,
+  WorkforceApiError,
   workforceRenderUrl,
   type QualityCheck,
   type WorkerAgent,
@@ -189,7 +190,7 @@ export default function WorkforcePage() {
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get('p'))
   const [production, setProduction] = useState<WorkforceProduction | null>(null)
   const [events, setEvents] = useState<WorkforceEvent[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [agentDetail, setAgentDetail] = useState<WorkerAgentDetail | null>(null)
   const [agentError, setAgentError] = useState<string | null>(null)
@@ -227,7 +228,7 @@ export default function WorkforcePage() {
         setSelectedId((current) => current ?? rows[0]?.id ?? null)
       })
       .catch((err) => {
-        if (!cancelled) setError(workforceErrorMessage(err))
+        if (!cancelled) setError(err)
       })
     return () => {
       cancelled = true
@@ -260,7 +261,7 @@ export default function WorkforcePage() {
     loadProduction(selectedId, true)
       .then(() => setError(null))
       .catch((err) => {
-        if (!cancelled) setError(workforceErrorMessage(err))
+        if (!cancelled) setError(err)
       })
     return () => {
       cancelled = true
@@ -279,11 +280,11 @@ export default function WorkforcePage() {
           else setSelectedId(rows[0]?.id ?? null)
         }
       } catch (err) {
-        setError(workforceErrorMessage(err))
+        setError(err)
       } finally {
         refreshing.current = false
       }
-    }, 3000)
+    }, 4000)
     return () => window.clearInterval(timer)
   }, [loadAll, loadProduction, selectedId])
 
@@ -474,6 +475,7 @@ export default function WorkforcePage() {
   }
 
   const running = production && ['running', 'planning'].includes(production.status)
+  const throttled = error instanceof WorkforceApiError && error.status === 429
 
   return (
     <div className="mx-auto w-full max-w-[1380px] px-4 py-5 sm:px-6 lg:px-8">
@@ -483,7 +485,7 @@ export default function WorkforcePage() {
         description="A self-managing production company. The manager plans specialists, the factory creates missing roles, tasks run in parallel with retries, and every output is persisted before it appears here."
         actions={
           <>
-            <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => loadAll().catch((err) => setError(workforceErrorMessage(err)))}>
+            <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => loadAll().catch((err) => setError(err))}>
               Refresh
             </Button>
             <Button size="sm" variant="primary" icon={Bot} onClick={() => setCreateOpen(true)}>
@@ -501,8 +503,12 @@ export default function WorkforcePage() {
         <div className="mt-4 flex items-start gap-2 rounded-xl border border-rose-400/25 bg-rose-500/10 px-3.5 py-3 text-[12.5px] text-rose-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <div>
-            <p className="font-medium">Live backend unavailable</p>
-            <p className="mt-0.5 text-rose-100/80">{error} Nothing on this page is simulated; start the backend with "npm run server" to see real state.</p>
+            <p className="font-medium">{throttled ? 'API is throttling requests' : 'Live backend unavailable'}</p>
+            <p className="mt-0.5 text-rose-100/80">
+              {throttled
+                ? `${workforceErrorMessage(error)} The dashboard polls a few endpoints every few seconds and the server is rate-limiting it. It retries automatically; no state is simulated.`
+                : `${workforceErrorMessage(error)} Nothing on this page is simulated; start the backend with "npm run server" to see real state.`}
+            </p>
           </div>
         </div>
       ) : null}

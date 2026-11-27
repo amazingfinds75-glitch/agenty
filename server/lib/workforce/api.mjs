@@ -65,7 +65,13 @@ export async function handleWorkforce(req, res, url, helpers) {
   const method = req.method ?? 'GET'
 
   const route = pathname.slice('/api/workforce/'.length)
-  const segments = route.split('/').filter(Boolean).map((segment) => decodeURIComponent(segment))
+  const segments = route.split('/').filter(Boolean).map((segment) => {
+    try {
+      return decodeURIComponent(segment)
+    } catch {
+      return segment
+    }
+  })
 
   try {
     if (segments[0] === 'status' && segments.length === 1 && method === 'GET') {
