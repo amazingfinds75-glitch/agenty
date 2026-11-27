@@ -6,3 +6,5 @@ dist/
 server/data/
 *.local
 *.tsbuildinfo
+e2e-artifacts/
+workforce-page.png

@@ -142,6 +142,14 @@ export const NAV_ITEMS: NavItem[] = [
     description: 'The 12 specialists and producer',
   },
   {
+    to: '/workforce',
+    label: 'Agent Workforce',
+    rail: 'Workforce',
+    icon: Activity,
+    group: 'team',
+    description: 'Live agent factory, task board and self-improvement',
+  },
+  {
     to: '/library',
     label: 'Media Library',
     rail: 'Library',

@@ -15,6 +15,7 @@ const ScriptStudioPage = lazy(() => import('./pages/ScriptStudioPage'))
 const VideoStudioPage = lazy(() => import('./pages/VideoStudioPage'))
 const DesignStudioPage = lazy(() => import('./pages/DesignStudioPage'))
 const TeamPage = lazy(() => import('./pages/TeamPage'))
+const WorkforcePage = lazy(() => import('./pages/WorkforcePage'))
 const LibraryPage = lazy(() => import('./pages/LibraryPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const VerificationPage = lazy(() => import('./pages/VerificationPage'))
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/video-studio" element={<VideoStudioPage />} />
           <Route path="/design" element={<DesignStudioPage />} />
           <Route path="/team" element={<TeamPage />} />
+          <Route path="/workforce" element={<WorkforcePage />} />
           <Route path="/library" element={<LibraryPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/verification" element={<VerificationPage />} />

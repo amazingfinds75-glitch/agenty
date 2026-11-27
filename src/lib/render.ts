@@ -272,7 +272,7 @@ export function supportsVideoRender() {
   return hasCapture && hasRecorder
 }
 
-function pickMime() {
+function createRecorder(stream: MediaStream, bitrate: number) {
   const candidates = [
     'video/mp4;codecs=avc1.42E01E',
     'video/webm;codecs=vp9',
@@ -281,18 +281,21 @@ function pickMime() {
   ]
   for (const mime of candidates) {
     try {
-      if (MediaRecorder.isTypeSupported(mime)) return mime
+      if (!MediaRecorder.isTypeSupported(mime)) continue
+      const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: bitrate })
+      return { recorder, mime }
     } catch {
-      /* ignore */
+      /* try the next container codec */
     }
   }
-  return ''
+  throw new Error('VIDEO_RENDER_UNSUPPORTED')
 }
 
 export async function renderDemoVideo(
   artifacts: Artifacts,
   platform: Platform,
   onProgress?: (progress: number) => void,
+  durationSec = 10,
 ): Promise<RenderResult> {
   if (!supportsVideoRender()) {
     throw new Error('VIDEO_RENDER_UNSUPPORTED')
@@ -300,9 +303,6 @@ export async function renderDemoVideo(
   if (document.visibilityState === 'hidden') {
     throw new Error('VIDEO_RENDER_HIDDEN')
   }
-  const mime = pickMime()
-  if (!mime) throw new Error('VIDEO_RENDER_UNSUPPORTED')
-
   const isVertical = platform !== 'youtube-long'
   const W = isVertical ? 720 : 1280
   const H = isVertical ? 1280 : 720
@@ -344,18 +344,22 @@ export async function renderDemoVideo(
     audioCtx = null
   }
 
-  const recorder = new MediaRecorder(stream, {
-    mimeType: mime,
-    videoBitsPerSecond: isVertical ? 3_200_000 : 4_500_000,
-  })
+  const { recorder, mime } = createRecorder(stream, isVertical ? 3_200_000 : 4_500_000)
   const chunks: Blob[] = []
   recorder.ondataavailable = (e) => {
     if (e.data.size > 0) chunks.push(e.data)
   }
 
-  const totalMs = 10_000
+  const totalMs = Math.max(4, durationSec) * 1000
   const started = performance.now()
-  const sceneCount = Math.max(1, Math.min(6, artifacts.scenes.length))
+  const sceneCount = Math.max(1, Math.min(8, artifacts.scenes.length))
+  const sceneWindows = artifacts.scenes.slice(0, sceneCount).map((scene, index) => {
+    const row = scene as typeof scene & { startSec?: number; endSec?: number }
+    if (typeof row.startSec === 'number' && typeof row.endSec === 'number' && row.endSec > row.startSec) {
+      return { startMs: row.startSec * 1000, endMs: row.endSec * 1000 }
+    }
+    return { startMs: (totalMs / sceneCount) * index, endMs: (totalMs / sceneCount) * (index + 1) }
+  })
   const particles = Array.from({ length: 70 }, (_, i) => ({
     x: (Math.sin(i * 12.9898) * 43758.5453) % 1,
     y: (Math.sin(i * 78.233) * 12345.678) % 1,
@@ -383,14 +387,18 @@ export async function renderDemoVideo(
     }
   }
   document.addEventListener('visibilitychange', onVisibility)
-  const watchdog = window.setTimeout(stopRecorder, 20_000)
+  const watchdog = window.setTimeout(stopRecorder, totalMs + 15_000)
 
   const draw = (frameTime: number) => {
     const elapsed = frameTime - started
     const t = Math.min(1, elapsed / totalMs)
-    const sceneIdx = Math.min(sceneCount - 1, Math.floor(t * sceneCount))
+    let sceneIdx = 0
+    for (let i = 0; i < sceneWindows.length; i += 1) {
+      if (elapsed >= sceneWindows[i].startMs) sceneIdx = i
+    }
+    const segment = sceneWindows[sceneIdx]
+    const local = Math.max(0, Math.min(1, (elapsed - segment.startMs) / Math.max(1, segment.endMs - segment.startMs)))
     const scene = artifacts.scenes[sceneIdx]
-    const local = Math.max(0, Math.min(1, t * sceneCount - sceneIdx))
     const accent = artifacts.theme.accent
 
     const bg = ctx.createLinearGradient(0, 0, W, H)
@@ -446,7 +454,7 @@ export async function renderDemoVideo(
     ctx.fillText('AI VIRAL STUDIO', pad, pad)
     ctx.textAlign = 'right'
     ctx.fillStyle = 'rgba(245,247,250,0.38)'
-    ctx.fillText('DEMO RENDER', W - pad, pad)
+    ctx.fillText('LOCAL CANVAS RENDER', W - pad, pad)
     ctx.textAlign = 'left'
 
     ctx.fillStyle = accent

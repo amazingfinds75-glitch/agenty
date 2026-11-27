@@ -336,7 +336,7 @@ export default function WorkspacePage() {
                   You call the shots.
                 </h1>
                 <p className="mx-auto mt-2.5 max-w-[52ch] text-balance text-[13px] leading-relaxed text-txt-muted">
-                  One brief starts research, script, voice, visuals and QC — simulated locally, approved by you.
+                  One brief starts research, script, visuals and QC — in the studio preview and in the live agent workforce behind it.
                 </p>
               </header>
 
@@ -363,14 +363,15 @@ export default function WorkspacePage() {
                 </div>
 
                 <p className="mt-2.5 text-center text-[10px] text-txt-faint">
-                  Demo engine · outputs are simulated · nothing publishes automatically
+                  Studio preview is simulated · the Agent Workforce runs real local jobs · nothing publishes automatically
                 </p>
               </div>
 
               <div className="mt-6 flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.08] bg-[linear-gradient(100deg,rgba(0,212,255,0.06),rgba(139,92,246,0.06)_55%,rgba(255,255,255,0.02))] px-3 py-2">
                 <p className="min-w-0 flex-1 text-[11px] leading-relaxed text-txt-muted">
-                  <span className="font-medium text-txt">Demo engine.</span> 12 specialist agents advance on a local
-                  clock — nothing is scheduled or published automatically.
+                  <span className="font-medium text-txt">Two engines.</span> The studio preview advances 12 specialists on
+                  a local clock. The Agent Workforce runs a real persistent production with its own specialists — open it
+                  after sending a brief.
                 </p>
                 <Link
                   to="/verification"
@@ -385,7 +386,7 @@ export default function WorkspacePage() {
                   <div>
                     <h2 className="font-display text-[15px] font-medium tracking-tight text-txt">Studio tools</h2>
                     <p className="mt-0.5 text-[11px] text-txt-faint">
-                      No AI model, voice or video API is connected yet — every run is simulated locally.
+                      No AI model, voice or video API is connected — studio runs are simulated; the workforce reports its own local engine.
                     </p>
                   </div>
                   <Link
@@ -515,7 +516,7 @@ export default function WorkspacePage() {
               </section>
 
               <p className="mt-10 text-center text-[10px] leading-relaxed text-txt-faint">
-                Agents tick on a local clock · outputs are simulated · publishing stays manual.{' '}
+                Studio preview is simulated · publishing stays manual.{' '}
                 <Link to="/verification" className="text-cyan/75 hover:text-cyan">
                   What’s real?
                 </Link>

@@ -66,7 +66,7 @@ export default function VerificationPage() {
         ? { label: 'WebGL', status: 'pass', detail: gl.detail }
         : { label: 'WebGL', status: 'warn', detail: gl.detail },
       recorder
-        ? { label: 'Video rendering', status: 'pass', detail: 'captureStream + MediaRecorder available. Renders are real, local 10s demo cuts.' }
+        ? { label: 'Video rendering', status: 'pass', detail: 'captureStream + MediaRecorder available. Renders are real local captures; a 30s Instagram Reel was rendered and stored as MP4 in Chrome.' }
         : { label: 'Video rendering', status: 'fail', detail: 'This browser lacks captureStream or MediaRecorder. The render button reports this instead of pretending to work.' },
       tts
         ? { label: 'Voice preview', status: 'pass', detail: 'speechSynthesis available. Voices depend on installed system voices.' }
@@ -131,6 +131,12 @@ export default function VerificationPage() {
           note="Exercised in this build with the browser’s own APIs."
           items={[
             ['Chat → production flow', 'Sending a prompt creates a session, builds a plan message and starts the simulated pipeline. Cancelling and revising work.'],
+            ['Agent workforce', 'A brief also starts a real background production in the persistent workforce: 13 dependent tasks, 13 specialist agents, event log and structured artifacts stored on the server.'],
+            ['Agent factory', 'Specialists can be registered, edited into a new version, sandbox-tested, given memory and retired from the workforce dashboard. No fixed roster cap.'],
+            ['30s Reel render', 'Verified end to end in Chrome: a 30-second 9:16 Instagram Reel rendered through canvas + MediaRecorder (video/mp4), uploaded, signature-checked by the server and downloaded again byte-for-byte.'],
+            ['Improvement cycle', 'Measured proposals are generated from evaluation results, tested against the current directive in a sandbox and require human approval before activation; rollback restores the prior version.'],
+            ['Workforce persistence', 'Agents, productions, tasks, events, evaluations, memory, versions and render files are stored as JSON on the server and survive a restart (re-verified after a restart).'],
+            ['Parallel execution and retries', 'Two tasks run at once, dependent tasks wait for their inputs, failed tasks retry twice with backoff and failures stay visible on the board.'],
             ['Live trend desk', 'The local backend fetches Google Trends RSS and Hacker News headlines; opportunity scores are computed locally. No platform analytics are used.'],
             ['Chart history', 'Each fetch appends a snapshot to server/data/trends.json. The detail view charts score and rank movement across recorded snapshots.'],
             ['Live topic → production', 'A live headline becomes a seeded brief that runs through the same 13-stage simulated pipeline and local canvas render.'],
@@ -151,7 +157,10 @@ export default function VerificationPage() {
           title="Implemented, not fully tested"
           note="Real code paths whose behaviour depends on the machine or browser."
           items={[
-            ['Video render quality', 'MediaRecorder output is a genuine 10-second local cut, but codec choice (mp4/webm) varies by browser and has not been verified on every target.'],
+            ['Video render quality', 'MediaRecorder output is a genuine local cut. Chrome produced MP4 here; other browsers may produce WebM, and playback/conversion on other devices has not been checked.'],
+            ['Workforce model calls', 'No model key is configured, so agents use the deterministic local directive engine. The OpenAI, Anthropic and Gemini merge path exists but has never run with a real key.'],
+            ['Narration audio', 'The workforce writes a timed narration script and voice direction; no TTS provider is connected, so the stored video has no speech track.'],
+            ['Improvement proposals', 'Proposals are derived from real scores, but no model rewrites prompts yet; the before/after harness is the verified part.'],
             ['AI signal analysis', 'With a provider key in .env, analysis calls OpenAI, Anthropic or Gemini for strict JSON. The call path is unverified without a real key; unconfigured or failing calls return a labeled local heuristic.'],
             ['External video providers', 'Luma and Replicate adapters exist but have never completed a live job. Use them only after testing with your own account; the in-app renderer is the verified path.'],
             ['Voice preview', 'Uses installed system voices. Telugu/Hindi/Tamil/Kannada pronunciation quality and availability vary by OS.'],
@@ -166,11 +175,11 @@ export default function VerificationPage() {
           title="Demo / simulated"
           note="Presented in the interface but driven by local mock data."
           items={[
-            ['12-agent pipeline', 'Stage progression is a local timer-based simulation. No agents, models or external services are called.'],
+            ['12-agent pipeline', 'The studio pages advance stages on a local timer. Those statuses are simulated; the separate Agent Workforce dashboard shows the real background jobs and never mixes the two.'],
             ['Demo trend library', 'The curated list on the Trends page is ten seeded signals with demo:// sources. The live desk above it is real; the two are labeled separately.'],
-            ['Research items', 'Research attached to productions is synthetic demo copy, even when the brief came from a live headline.'],
-            ['Generated copy', 'Scripts, titles, captions and hashtags come from templates and seeded randomness, not an LLM. Only signal analysis optionally calls a model.'],
-            ['Quality control', 'QC rows and scores are illustrative checklist text, not automated verification.'],
+            ['Research items', 'Research attached to studio projects is synthetic demo copy, even when the brief came from a live headline. Workforce research is collected separately from public RSS/search and labeled with its sources.'],
+            ['Generated copy', 'Studio scripts, titles, captions and hashtags come from templates and seeded randomness, not an LLM. Workforce copy uses the local directive engine (also not a model) and records that engine in the artifact.'],
+            ['Quality control', 'Studio QC rows are illustrative checklist text. Workforce QC runs deterministic checks over the actual artifacts (hook length, scene count, claims, captions, duration) and stores the failing checks.'],
             ['Media library generated entries', 'Indexed from productions; some entries exist as metadata without a downloadable file.'],
             ['Profile & notifications', 'Preferences persist locally. No email, push or account backend exists.'],
           ]}
@@ -181,9 +190,10 @@ export default function VerificationPage() {
           title="Not implemented"
           note="No UI pretends these exist."
           items={[
-            ['Real AI generation', 'No model is bundled. Scripts stay template-driven; the only model call is optional signal analysis once you add a key.'],
+            ['Real AI generation', 'No model is bundled. Ask for a live workforce production and every specialist reports either the local directive engine or a configured provider — never a fabricated model result.'],
             ['Automatic live topic monitoring', 'Snapshots are recorded only when the desk or another client fetches trends; there is no background scheduler and no alerting.'],
-            ['Real video editing', 'Renders are canvas motion graphics with a demo tone, not edited footage or synthesized speech tracks.'],
+            ['Real video editing', 'Workforce renders are canvas motion graphics with generated captions and scene timing, not edited footage or synthesized speech tracks.'],
+            ['TTS narration', 'The narration script and timing exist, but audio generation is blocked until a speech provider is configured. The video therefore has no voiceover.'],
             ['Publishing integrations', 'YouTube, Instagram and Drive show “Not connected”. Upload controls are disabled; publish manually via downloads.'],
             ['Accounts & collaboration', 'Single-browser local state only. No sign-in, teams, sharing or cloud sync.'],
             ['Payments / billing', 'No plans, checkout or usage metering.'],

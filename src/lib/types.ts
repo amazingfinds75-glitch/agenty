@@ -142,6 +142,7 @@ export interface Project {
   seed: number
   error?: string
   render?: { url?: string; mime?: string; renderedAt?: string; size?: number }
+  workforceId?: string
   revision: number
   quality: 'high' | 'balanced' | 'low'
 }

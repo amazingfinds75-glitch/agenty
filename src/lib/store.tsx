@@ -33,6 +33,7 @@ import type {
   Toast,
 } from './types'
 import { LANGUAGE_LABELS, formatBytes, uid } from './utils'
+import { createWorkforceProduction, workforceErrorMessage } from './workforceApi'
 
 const STORAGE_KEY = 'ai-viral-studio-v1'
 
@@ -772,7 +773,7 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
           kind: 'plan',
           createdAt: nowISO(),
           projectId,
-          content: `Brief parsed. ${formatFor(platform).format} in ${LANGUAGE_LABELS[language]}, built for ${platform === 'instagram-reel' ? 'feed-first discovery' : platform === 'youtube-long' ? 'search and long-session watch' : 'fast-paced retention'}. I’ve assigned the specialist team across 13 stages — research runs first, then script, fact-check, narration, visuals, edit, captions, cover, metadata and QC. You’ll see live status in the production panel.`,
+          content: `Brief parsed. ${formatFor(platform).format} in ${LANGUAGE_LABELS[language]}, built for ${platform === 'instagram-reel' ? 'feed-first discovery' : platform === 'youtube-long' ? 'search and long-session watch' : 'fast-paced retention'}. This canvas is the studio preview (simulated). The same brief is being sent to the live workforce now — its manager picks the specialists, and the real task board, memory and render live in Agent Workforce.`,
           meta: {
             title: 'Production plan',
             stages: STAGES.map((s) => s.name),
@@ -789,6 +790,46 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
           activeSessionId: sessionId,
         }
       })
+
+      const durationSec = platform === 'instagram-reel' ? 30 : platform === 'youtube-short' ? 45 : 480
+      void createWorkforceProduction({ topic: text, platform, language, durationSec })
+        .then(({ production }) => {
+          const specialists = production.plan.agentIds.length
+          const created = production.plan.createdAgents?.length ?? 0
+          setState((current) => ({
+            ...current,
+            projects: current.projects.map((p) =>
+              p.id === projectId ? { ...p, workforceId: production.id } : p,
+            ),
+            sessions: bumpSession(
+              current.sessions,
+              sessionId,
+              makeMessage({
+                role: 'assistant',
+                kind: 'note',
+                content: `The live workforce accepted this brief as ${production.id}. The manager planned ${production.plan.capabilities?.length ?? specialists} tasks across ${specialists} specialists${created ? ` and the factory created ${created} new ${created === 1 ? 'role' : 'roles'}` : ''}. Real task, memory and render state is in Agent Workforce. Narration audio and external video models remain blocked until providers are configured; the browser renderer produces the video file.`,
+                projectId,
+                meta: {
+                  title: 'Live workforce production',
+                  actionLabel: 'Open live workforce',
+                  actionTo: `/workforce?p=${production.id}`,
+                },
+              }),
+            ),
+          }))
+          pushToast({
+            tone: 'success',
+            title: 'Live workforce production started',
+            description: `${production.id} · ${specialists} specialists · ${created} created by the factory.`,
+          })
+        })
+        .catch((error) => {
+          pushToast({
+            tone: 'info',
+            title: 'Live workforce not started',
+            description: `${workforceErrorMessage(error)} The canvas preview above is simulated and no real production was created.`,
+          })
+        })
       return { sessionId, projectId, intent: 'production' }
     }
 

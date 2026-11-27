@@ -9,6 +9,8 @@ import { flushAllStores } from './lib/store.mjs'
 import { getCacheSummary, getLiveTrends, getSignalHistory, getSourceStatuses } from './lib/sources.mjs'
 import { getAIStatus, runAnalysis } from './lib/ai.mjs'
 import { createVideoJob, getVideoJob, getVideoStatus, listVideoJobs } from './lib/video.mjs'
+import { initWorkforce, statusView, workforceBootLog } from './lib/workforce/engine.mjs'
+import { handleWorkforce } from './lib/workforce/api.mjs'
 import { clamp, truncate } from './lib/util.mjs'
 
 const startTime = Date.now()
@@ -264,6 +266,11 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    if (pathname.startsWith('/api/workforce/')) {
+      const handled = await handleWorkforce(req, res, url, { json, securityHeaders, readBody, rateLimited })
+      if (handled) return
+    }
+
     if (pathname === '/api' && req.method === 'GET') {
       json(req, res, 200, {
         ok: true,
@@ -277,8 +284,26 @@ const server = http.createServer(async (req, res) => {
           'POST /api/video/jobs',
           'GET /api/video/jobs',
           'GET /api/video/jobs/:id',
+          'GET /api/workforce/status',
+          'GET /api/workforce/agents',
+          'POST /api/workforce/agents',
+          'GET /api/workforce/agents/:id',
+          'PATCH /api/workforce/agents/:id',
+          'POST /api/workforce/agents/:id/retire',
+          'POST /api/workforce/agents/:id/test',
+          'POST /api/workforce/agents/:id/memory',
+          'GET /api/workforce/productions',
+          'POST /api/workforce/productions',
+          'GET /api/workforce/productions/:id',
+          'POST /api/workforce/productions/:id/pause|resume|cancel|retry|approve|feedback|improve',
+          'POST /api/workforce/productions/:id/render',
+          'GET /api/workforce/productions/:id/render/file',
+          'GET /api/workforce/productions/:id/artifacts/:name',
+          'GET /api/workforce/improvements',
+          'POST /api/workforce/improvements/:id/approve|reject|rollback',
+          'GET /api/workforce/events?after=...',
         ],
-        note: 'Scores, analysis and chart history are computed locally. Publishing is not implemented.',
+        note: 'Scores, analysis and chart history are computed locally. Publishing is not implemented. The workforce runs real background tasks; model calls require a configured key.',
         auth: API_TOKEN ? 'Write endpoints require "Authorization: Bearer <API_TOKEN>".' : 'No API token configured; keep this server on a trusted network.',
       })
       return
@@ -318,6 +343,11 @@ const server = http.createServer(async (req, res) => {
         publishing: {
           configured: false,
           detail: 'Publishing integrations are not implemented. Approve, download and upload manually.',
+        },
+        workforce: {
+          enabled: true,
+          ...workforceBootLog(),
+          detail: 'Persistent agent workforce. Model calls run only when a key is configured and the agent is permitted.',
         },
         note: 'Live sources are fetched from public feeds. Scores are heuristic. AI calls only run when configured and requested.',
       })
@@ -438,9 +468,17 @@ server.on('error', (error) => {
   process.exit(1)
 })
 
+try {
+  await initWorkforce()
+} catch (error) {
+  console.error('[workforce] failed to initialise:', error)
+}
+
 server.listen(CONFIG.port, CONFIG.host, () => {
   const ai = getAIStatus()
   const video = getVideoStatus()
+  const workforce = workforceBootLog()
+  const workforceStatus = statusView()
   const exposed = !['127.0.0.1', 'localhost', '::1'].includes(CONFIG.host)
   console.log(`AI Viral Studio live backend v${VERSION}`)
   console.log(`  API + app: http://localhost:${CONFIG.port}`)
@@ -463,6 +501,8 @@ server.listen(CONFIG.port, CONFIG.host, () => {
   console.log(`  live sources: Google Trends RSS, Hacker News${process.env.YOUTUBE_API_KEY?.trim() ? ', YouTube charts' : ' (YouTube key not set)'}`)
   console.log(`  AI analysis: ${ai.configured ? `${ai.provider} · ${ai.model}` : 'heuristic only (no AI key)'}`)
   console.log(`  AI video: ${video.configured ? `${video.provider} · ${video.model}` : 'not configured (local canvas renderer remains verified)'}`)
+  console.log(`  workforce: ${workforce.agents} agents · ${workforce.productions} productions · ${workforce.llm.configured ? `${workforce.llm.provider} model engine` : 'local directive engine (no model key)'}`)
+  console.log(`  workforce queue: ${workforceStatus.counts.tasks.pending} pending · ${workforceStatus.counts.tasks.running} running · ${workforceStatus.counts.improvements.pending} improvements awaiting approval`)
   console.log(`  data: ${CONFIG.dataDir}`)
 })
 
