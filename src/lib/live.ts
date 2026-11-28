@@ -42,6 +42,16 @@ export interface BackendHealth {
     configured: boolean
     detail: string
   }
+  qoder?: {
+    configured: boolean
+    tokenEnv: string
+    apiBaseHost: string
+    agentConfigured: boolean
+    environmentConfigured: boolean
+    agentId: string | null
+    environmentId: string | null
+    detail: string
+  }
   note: string
 }
 

@@ -5,24 +5,31 @@ import {
   AlertTriangle,
   ArrowDownToLine,
   BadgeCheck,
+  Ban,
   Bot,
   Brain,
   CheckCircle2,
   CircleSlash,
+  Cloud,
   Clock3,
   Download,
   ExternalLink,
   FileText,
   FlaskConical,
   Gauge,
+  GitBranch,
   History,
+  Laptop,
   Loader2,
+  MessageSquare,
   Pause,
   Play,
+  Radio,
   RefreshCw,
   RotateCcw,
   ScrollText,
   Send,
+  Server,
   ShieldCheck,
   Sparkles,
   Square,
@@ -52,28 +59,38 @@ import type { Artifacts, Platform } from '../lib/types'
 import {
   addWorkforceMemory,
   approveWorkforceProduction,
+  approveWorkforceScript,
+  cancelQoderSession,
   controlWorkforceProduction,
+  createQoderSession,
   createWorkforceAgent,
   createWorkforceProduction,
   decideWorkforceImprovement,
   feedbackWorkforceProduction,
+  fetchQoderSessions,
+  fetchRuntimeAgents,
   fetchWorkforceAgent,
   fetchWorkforceAgents,
   fetchWorkforceEvents,
   fetchWorkforceImprovements,
   fetchWorkforceProductions,
   fetchWorkforceProduction,
+  fetchWorkforceRuntime,
   fetchWorkforceStatus,
   formatBytes,
   improveWorkforceProduction,
+  qoderSessionStreamUrl,
+  requestWorkforceRevision,
   retireWorkforceAgent,
   testWorkforceAgent,
   updateWorkforceAgent,
   uploadWorkforceRender,
   workforceArtifactUrl,
   workforceErrorMessage,
+  workforceEventsStreamUrl,
   workforceRenderUrl,
   type QualityCheck,
+  type QoderSession,
   type WorkerAgent,
   type WorkerAgentDetail,
   type WorkerMemoryEntry,
@@ -82,6 +99,8 @@ import {
   type WorkforceLanguage,
   type WorkforceProduction,
   type WorkforceProductionSummary,
+  type WorkforceRuntimeAgent,
+  type WorkforceRuntimeStatus,
   type WorkforceStatus,
 } from '../lib/workforceApi'
 
@@ -108,6 +127,10 @@ const EVENT_TONE: Record<string, string> = {
   'production.failed': 'text-rose-300',
   'production.paused': 'text-amber-200',
   'production.resumed': 'text-cyan',
+  'production.script_review': 'text-amber-200',
+  'production.script_approved': 'text-emerald-300',
+  'production.script_rejected': 'text-rose-300',
+  'production.revision': 'text-violet-200',
   'improvement.proposed': 'text-violet-200',
   'improvement.approved': 'text-emerald-300',
   'improvement.rejected': 'text-rose-300',
@@ -116,7 +139,14 @@ const EVENT_TONE: Record<string, string> = {
   'memory.added': 'text-violet-200',
 }
 
-type Tab = 'board' | 'agents' | 'improvements'
+type Tab = 'board' | 'agents' | 'improvements' | 'runtime'
+
+function mergeEvents(previous: WorkforceEvent[], incoming: WorkforceEvent[]) {
+  if (!incoming.length) return previous
+  const map = new Map(previous.map((event) => [event.seq, event]))
+  for (const event of incoming) map.set(event.seq, event)
+  return [...map.values()].sort((a, b) => a.seq - b.seq).slice(-400)
+}
 
 function scorePct(value: number | null | undefined) {
   return typeof value === 'number' ? `${Math.round(value * 100)}%` : '—'
@@ -201,20 +231,31 @@ export default function WorkforcePage() {
   const [newAgent, setNewAgent] = useState({ name: '', role: '', capability: 'content-strategy', instructions: '', tools: '' })
   const [feedbackRating, setFeedbackRating] = useState(5)
   const [feedbackNote, setFeedbackNote] = useState('')
+  const [revisionDraft, setRevisionDraft] = useState('')
+  const [streamMode, setStreamMode] = useState<'connecting' | 'live' | 'polling'>('connecting')
+  const [runtime, setRuntime] = useState<WorkforceRuntimeStatus | null>(null)
+  const [runtimeAgents, setRuntimeAgents] = useState<WorkforceRuntimeAgent[]>([])
+  const [runtimeSources, setRuntimeSources] = useState<Array<{ id: string; label: string; callable: boolean; count: number; detail: string; error?: string | null }>>([])
+  const [runtimeSessions, setRuntimeSessions] = useState<QoderSession[]>([])
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const [runtimeBusy, setRuntimeBusy] = useState<string | null>(null)
+  const [qoderForm, setQoderForm] = useState({ agentId: '', environmentId: '', task: '' })
   const seqRef = useRef(0)
   const refreshing = useRef(false)
 
   const loadAll = useCallback(async () => {
-    const [nextStatus, agentData, productionData, improvementData] = await Promise.all([
+    const [nextStatus, agentData, productionData, improvementData, runtimeData] = await Promise.all([
       fetchWorkforceStatus(),
       fetchWorkforceAgents(),
       fetchWorkforceProductions(60),
       fetchWorkforceImprovements(),
+      fetchWorkforceRuntime().catch(() => null),
     ])
     setStatus(nextStatus)
     setAgents(agentData.agents)
     setProductions(productionData.productions)
     setImprovements(improvementData.improvements)
+    if (runtimeData) setRuntime(runtimeData)
     setError(null)
     return productionData.productions
   }, [])
@@ -245,8 +286,8 @@ export default function WorkforcePage() {
     ])
     setProduction(detail.production)
     if (eventData.events.length) {
-      seqRef.current = Math.max(seqRef.current, eventData.seq)
-      setEvents((prev) => [...prev, ...eventData.events].slice(-400))
+      seqRef.current = Math.max(seqRef.current, eventData.seq ?? eventData.events[eventData.events.length - 1].seq)
+      setEvents((prev) => mergeEvents(prev, eventData.events))
     }
   }, [])
 
@@ -264,6 +305,44 @@ export default function WorkforcePage() {
       })
     return () => {
       cancelled = true
+    }
+  }, [selectedId, loadProduction])
+
+  useEffect(() => {
+    if (!selectedId || typeof EventSource === 'undefined') {
+      setStreamMode('polling')
+      return
+    }
+    let source: EventSource | null = null
+    let refreshTimer: number | undefined
+    setStreamMode('connecting')
+    try {
+      source = new EventSource(workforceEventsStreamUrl(selectedId, 0))
+    } catch {
+      setStreamMode('polling')
+      return
+    }
+    source.onopen = () => setStreamMode('live')
+    source.onmessage = (message) => {
+      try {
+        const entry = JSON.parse(message.data) as WorkforceEvent
+        if (!entry || typeof entry.seq !== 'number') return
+        seqRef.current = Math.max(seqRef.current, entry.seq)
+        setEvents((prev) => mergeEvents(prev, [entry]))
+        if (refreshTimer === undefined) {
+          refreshTimer = window.setTimeout(() => {
+            refreshTimer = undefined
+            void loadProduction(selectedId)
+          }, 600)
+        }
+      } catch {
+        // Ignore malformed frames; polling remains the fallback.
+      }
+    }
+    source.onerror = () => setStreamMode('polling')
+    return () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer)
+      source?.close()
     }
   }, [selectedId, loadProduction])
 
@@ -286,6 +365,31 @@ export default function WorkforcePage() {
     }, 3000)
     return () => window.clearInterval(timer)
   }, [loadAll, loadProduction, selectedId])
+
+  const loadRuntime = useCallback(async (probe = false) => {
+    setRuntimeBusy('runtime-load')
+    try {
+      const [runtimeData, agentData, sessionData] = await Promise.all([
+        fetchWorkforceRuntime(probe),
+        fetchRuntimeAgents(),
+        fetchQoderSessions(),
+      ])
+      setRuntime(runtimeData)
+      setRuntimeAgents(agentData.agents)
+      setRuntimeSources(agentData.sources)
+      setRuntimeSessions(sessionData.sessions)
+      setRuntimeError(null)
+    } catch (err) {
+      setRuntimeError(workforceErrorMessage(err))
+    } finally {
+      setRuntimeBusy(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tab !== 'runtime') return
+    void loadRuntime(false)
+  }, [tab, loadRuntime])
 
   const selectProduction = (productionId: string) => {
     setSelectedId(productionId)
@@ -322,6 +426,74 @@ export default function WorkforcePage() {
       pushToast({ tone: 'error', title: 'Approval failed', description: workforceErrorMessage(err) })
     } finally {
       setBusy(null)
+    }
+  }
+
+  const runApproveScript = async () => {
+    if (!production) return
+    setBusy('script-approve')
+    try {
+      await approveWorkforceScript(production.id, true)
+      await refreshAfter(production.id, 'Script approved')
+    } catch (err) {
+      pushToast({ tone: 'error', title: 'Script approval failed', description: workforceErrorMessage(err) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const runRevision = async () => {
+    if (!production) return
+    const note = revisionDraft.trim()
+    if (note.length < 3) {
+      pushToast({ tone: 'error', title: 'Add a revision note', description: 'Tell the workforce exactly what to change. The note is stored in agent memory.' })
+      return
+    }
+    setBusy('revision')
+    try {
+      await requestWorkforceRevision(production.id, note)
+      setRevisionDraft('')
+      await refreshAfter(production.id, `Revision r${production.revision + 1} queued`)
+    } catch (err) {
+      pushToast({ tone: 'error', title: 'Could not request revision', description: workforceErrorMessage(err) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const runCloudSession = async () => {
+    const task = qoderForm.task.trim()
+    if (task.length < 3) {
+      pushToast({ tone: 'error', title: 'Describe the task', description: 'A cloud session needs a task message.' })
+      return
+    }
+    setRuntimeBusy('session-create')
+    try {
+      const result = await createQoderSession({
+        task,
+        agentId: qoderForm.agentId.trim() || undefined,
+        environmentId: qoderForm.environmentId.trim() || undefined,
+      })
+      setRuntimeSessions((prev) => [result.session, ...prev.filter((row) => row.id !== result.session.id)])
+      setQoderForm((prev) => ({ ...prev, task: '' }))
+      pushToast({ tone: 'success', title: 'Qoder Cloud session created', description: `${result.session.remoteId} · task sent to the configured Cloud agent.` })
+    } catch (err) {
+      pushToast({ tone: 'error', title: 'Cloud session failed', description: workforceErrorMessage(err) })
+    } finally {
+      setRuntimeBusy(null)
+    }
+  }
+
+  const runCancelSession = async (session: QoderSession) => {
+    setRuntimeBusy(`session-cancel-${session.id}`)
+    try {
+      const result = await cancelQoderSession(session.id)
+      setRuntimeSessions((prev) => prev.map((row) => (row.id === result.session.id ? result.session : row)))
+      pushToast({ tone: 'info', title: 'Session cancel requested', description: result.session.remoteId })
+    } catch (err) {
+      pushToast({ tone: 'error', title: 'Cancel failed', description: workforceErrorMessage(err) })
+    } finally {
+      setRuntimeBusy(null)
     }
   }
 
@@ -522,6 +694,7 @@ export default function WorkforcePage() {
             { id: 'board', label: 'Live board', icon: Activity, count: productions.length },
             { id: 'agents', label: 'Specialists', icon: Users, count: agents.length },
             { id: 'improvements', label: 'Improvements', icon: Wand2, count: improvements.filter((row) => row.status === 'proposed').length },
+            { id: 'runtime', label: 'Runtimes', icon: Cloud, count: runtime ? runtime.runtimes.filter((row) => row.status === 'connected').length : 0 },
           ] as Array<{ id: Tab; label: string; icon: typeof Activity; count: number }>
         ).map((item) => (
           <button
@@ -615,7 +788,12 @@ export default function WorkforcePage() {
                 busy={busy}
                 onControl={runControl}
                 onApprove={runApprove}
+                onApproveScript={runApproveScript}
+                onRevision={runRevision}
+                revisionDraft={revisionDraft}
+                setRevisionDraft={setRevisionDraft}
                 onImprove={runImprove}
+                streamMode={streamMode}
                 onFeedback={runFeedback}
                 feedbackRating={feedbackRating}
                 setFeedbackRating={setFeedbackRating}
@@ -690,6 +868,198 @@ export default function WorkforcePage() {
               description="After a production finishes, the evaluator names its weakest measured checks and tests a candidate configuration against the current one. Proposals appear here for approval."
             />
           )}
+        </div>
+      ) : null}
+
+      {tab === 'runtime' ? (
+        <div className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="label text-[9px]">Runtime registry</div>
+              <p className="mt-1 text-[11px] leading-relaxed text-txt-muted">
+                Discovered from real server configuration. Qoder Desktop agents are listed but marked not callable — they only run inside the IDE.
+              </p>
+            </div>
+            <Button size="sm" variant="secondary" icon={RefreshCw} loading={runtimeBusy === 'runtime-load'} onClick={() => loadRuntime(true)}>
+              Probe runtimes
+            </Button>
+          </div>
+
+          {runtimeError ? (
+            <div className="rounded-xl border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-[11.5px] text-rose-100">{runtimeError}</div>
+          ) : null}
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            {(runtime?.runtimes ?? []).map((row) => {
+              const Icon = row.kind === 'qoder-cloud' ? Cloud : row.kind === 'qoder-ide' ? Laptop : Server
+              const tone = row.status === 'connected' ? 'success' : row.status === 'not_configured' || row.status === 'detected_not_callable' ? 'warn' : row.status === 'error' || row.status === 'unauthorized' ? 'error' : 'default'
+              return (
+                <div key={row.id} className="panel p-3.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03]">
+                        <Icon className="h-4 w-4 text-cyan" aria-hidden="true" />
+                      </span>
+                      <div>
+                        <div className="text-[12.5px] font-semibold text-txt">{row.name}</div>
+                        <div className="font-mono text-[9px] uppercase tracking-wide text-txt-faint">{row.kind}</div>
+                      </div>
+                    </div>
+                    <Badge mono tone={tone}>{row.status.replace(/_/g, ' ')}</Badge>
+                  </div>
+                  <p className="mt-2 text-[10.5px] leading-relaxed text-txt-muted">{row.detail}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    <Badge mono tone={row.externallyCallable ? 'cyan' : 'default'}>{row.externallyCallable ? 'callable from website' : 'not externally callable'}</Badge>
+                    {row.agents != null ? <Badge mono tone="default">{row.agents} agents</Badge> : null}
+                    {row.activeTasks != null ? <Badge mono tone={row.activeTasks ? 'warn' : 'default'}>{row.activeTasks} active</Badge> : null}
+                  </div>
+                </div>
+              )
+            })}
+            {!runtime ? (
+              <div className="panel p-3.5 text-[11px] text-txt-faint lg:col-span-3">Runtime status has not loaded yet.</div>
+            ) : null}
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_420px]">
+            <div className="panel p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="label text-[9px]">Qoder Cloud Agents</div>
+                <Badge mono tone={runtime?.qoderCloud.configured ? 'success' : 'warn'}>{runtime?.qoderCloud.configured ? 'token configured' : 'token missing'}</Badge>
+              </div>
+              <p className="mt-2 text-[10.5px] leading-relaxed text-txt-muted">{runtime?.qoderCloud.detail ?? 'Not checked yet.'}</p>
+              <div className="mt-2 rounded-lg border border-white/[0.06] bg-black/20 p-2 font-mono text-[9.5px] leading-relaxed text-txt-faint">
+                server only · QODER_ACCESS_TOKEN={runtime?.qoderCloud.configured ? 'set' : 'unset'}
+                <br />
+                default agent: {runtime?.qoderCloud.agentId ?? 'not set'} · environment: {runtime?.qoderCloud.environmentId ?? 'not set'}
+                <br />
+                api host: {runtime?.qoderCloud.apiBaseHost ?? '—'}
+              </div>
+              {runtime?.qoderCloud.configured ? (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input value={qoderForm.agentId} onChange={(event) => setQoderForm((prev) => ({ ...prev, agentId: event.target.value }))} placeholder={runtime.qoderCloud.agentId ?? 'agent_…'} className="h-8 text-[11px]" aria-label="Qoder agent id" />
+                    <Input value={qoderForm.environmentId} onChange={(event) => setQoderForm((prev) => ({ ...prev, environmentId: event.target.value }))} placeholder={runtime.qoderCloud.environmentId ?? 'env_…'} className="h-8 text-[11px]" aria-label="Qoder environment id" />
+                  </div>
+                  <Textarea value={qoderForm.task} onChange={(event) => setQoderForm((prev) => ({ ...prev, task: event.target.value }))} rows={3} placeholder="Task for the Cloud agent. Example: Research three verified angles for a 30s Reel about AI agent teams." className="text-[11.5px]" aria-label="Qoder task" />
+                  <Button block size="sm" variant="primary" icon={Send} loading={runtimeBusy === 'session-create'} disabled={qoderForm.task.trim().length < 3} onClick={runCloudSession}>
+                    Send task to Qoder Cloud
+                  </Button>
+                  <p className="text-[9.5px] leading-relaxed text-txt-faint">
+                    The task is sent with the server-side Bearer token. Requests fail explicitly when the token, agent id or environment id is invalid; nothing is simulated.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/[0.06] p-2.5 text-[10.5px] leading-relaxed text-amber-100/90">
+                  Blocked: set <span className="font-mono">QODER_ACCESS_TOKEN</span> in the server environment, then restart with <span className="font-mono">npm run server</span>. Also set <span className="font-mono">QODER_AGENT_ID</span> and <span className="font-mono">QODER_ENVIRONMENT_ID</span> (env_…) to create sessions without typing ids. The token is never sent to this page.
+                </div>
+              )}
+              <div className="mt-3 grid gap-1.5 sm:grid-cols-2">
+                {runtimeAgents.filter((agent) => agent.runtime === 'qoder-cloud').map((agent) => (
+                  <div key={agent.id} className="rounded-lg border border-white/[0.06] px-2 py-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[10.5px] text-txt">{agent.name}</span>
+                      <Badge mono tone="cyan">cloud</Badge>
+                    </div>
+                    <p className="mt-0.5 text-[9.5px] text-txt-faint">{agent.id}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="label text-[9px]">Qoder Cloud sessions</div>
+                <Badge mono tone="default">{runtimeSessions.length} stored</Badge>
+              </div>
+              <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
+                {runtimeSessions.length ? (
+                  runtimeSessions.map((session) => (
+                    <div key={session.id} className="rounded-lg border border-white/[0.06] px-2 py-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="line-clamp-2 text-[10.5px] text-txt">{session.task}</span>
+                        <Badge mono tone={session.status === 'running' ? 'cyan' : session.status === 'message_failed' ? 'error' : 'default'}>{session.status}</Badge>
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] text-txt-faint">
+                        <span>{session.remoteId}</span>
+                        <span>·</span>
+                        <span>{timeAgo(session.updatedAt)}</span>
+                        <button type="button" onClick={() => runCancelSession(session)} disabled={runtimeBusy === `session-cancel-${session.id}`} className="ml-auto text-rose-300 hover:underline disabled:opacity-40">
+                          cancel
+                        </button>
+                      </div>
+                      {session.lastError ? <p className="mt-1 text-[9.5px] leading-relaxed text-rose-300">{session.lastError}</p> : null}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-[11px] leading-relaxed text-txt-faint">No Cloud sessions yet. Sessions created from this page are persisted server-side with their upstream id and status.</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <div className="panel p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="label text-[9px]">Local runtime specialists</div>
+                <Badge mono tone="success">callable</Badge>
+              </div>
+              <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto pr-1">
+                {runtimeAgents.filter((agent) => agent.runtime === 'local-runtime').map((agent) => (
+                  <div key={agent.id} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.05] px-2 py-1.5">
+                    <div className="min-w-0">
+                      <div className="truncate text-[10.5px] text-txt">{agent.name}</div>
+                      <div className="font-mono text-[9px] text-txt-faint">{agent.capability} · v{agent.version}</div>
+                    </div>
+                    <Badge mono tone={agent.status === 'active' ? 'success' : 'default'}>{agent.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="panel p-3.5">
+              <div className="flex items-center justify-between">
+                <div className="label text-[9px]">Qoder Desktop local agents</div>
+                <Badge mono tone="warn">IDE only</Badge>
+              </div>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-txt-faint">
+                These profiles live in the Desktop IDE process. They have no HTTP API, so this website cannot invoke them. Their capabilities are reproduced by local runtime specialists, or by Qoder Cloud when configured.
+              </p>
+              <div className="mt-2 space-y-1.5">
+                {runtimeAgents.filter((agent) => agent.runtime === 'qoder-ide').map((agent) => (
+                  <div key={agent.id} className="rounded-lg border border-white/[0.05] px-2 py-1.5">
+                    <div className="flex items-center gap-2">
+                      <Ban className="h-3 w-3 shrink-0 text-txt-faint" aria-hidden="true" />
+                      <span className="truncate text-[10.5px] text-txt">{agent.name}</span>
+                      <span className="ml-auto font-mono text-[8.5px] text-txt-faint">{agent.source}</span>
+                    </div>
+                    <p className="mt-0.5 line-clamp-2 text-[9.5px] leading-relaxed text-txt-faint">{agent.reason}</p>
+                  </div>
+                ))}
+                {!runtimeAgents.some((agent) => agent.runtime === 'qoder-ide') ? (
+                  <p className="text-[11px] text-txt-faint">No local IDE agent profiles found.</p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="panel p-3.5">
+            <div className="label text-[9px]">Discovery sources</div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-3">
+              {runtimeSources.map((source) => (
+                <div key={source.id} className="rounded-lg border border-white/[0.06] px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10.5px] text-txt">{source.label}</span>
+                    <Badge mono tone={source.callable ? 'success' : 'default'}>{source.callable ? 'callable' : 'read-only'}</Badge>
+                  </div>
+                  <p className="mt-0.5 text-[9.5px] leading-relaxed text-txt-faint">{source.count} agents · {source.detail}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-[9.5px] leading-relaxed text-txt-faint">
+              Discovery is a live filesystem/API check performed by the backend on this request. No agent or session is invented to fill the page.
+            </p>
+          </div>
         </div>
       ) : null}
 
@@ -929,11 +1299,12 @@ function StartProductionForm({
   onStart,
 }: {
   busy: boolean
-  onStart: (input: { topic: string; platform: 'instagram-reel' | 'youtube-short' | 'youtube-long'; language: WorkforceLanguage }) => Promise<void>
+  onStart: (input: { topic: string; platform: 'instagram-reel' | 'youtube-short' | 'youtube-long'; language: WorkforceLanguage; requireScriptApproval?: boolean }) => Promise<void>
 }) {
   const [topic, setTopic] = useState('')
   const [platform, setPlatform] = useState<'instagram-reel' | 'youtube-short' | 'youtube-long'>('instagram-reel')
   const [language, setLanguage] = useState<WorkforceLanguage>('en')
+  const [requireScriptApproval, setRequireScriptApproval] = useState(false)
 
   return (
     <div className="panel p-3.5">
@@ -963,6 +1334,18 @@ function StartProductionForm({
           ))}
         </Select>
       </div>
+      <label className="mt-2 flex items-start gap-2 rounded-lg border border-white/[0.06] px-2 py-1.5 text-[10.5px] text-txt-muted">
+        <input
+          type="checkbox"
+          checked={requireScriptApproval}
+          onChange={(event) => setRequireScriptApproval(event.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 accent-cyan"
+        />
+        <span>
+          Pause for script approval
+          <span className="block text-[9.5px] text-txt-faint">The manager stops after scripting. Downstream specialists wait for your approval or a revision note.</span>
+        </span>
+      </label>
       <Button
         block
         variant="primary"
@@ -971,8 +1354,9 @@ function StartProductionForm({
         loading={busy}
         disabled={topic.trim().length < 3}
         onClick={() => {
-          void onStart({ topic: topic.trim(), platform, language })
+          void onStart({ topic: topic.trim(), platform, language, requireScriptApproval })
           setTopic('')
+          setRequireScriptApproval(false)
         }}
       >
         Start workforce production
@@ -994,6 +1378,10 @@ function ProductionPanel({
   busy,
   onControl,
   onApprove,
+  onApproveScript,
+  onRevision,
+  revisionDraft,
+  setRevisionDraft,
   onImprove,
   onFeedback,
   feedbackRating,
@@ -1003,6 +1391,7 @@ function ProductionPanel({
   onDecide,
   onOpenAgent,
   onRendered,
+  streamMode,
   notify,
 }: {
   production: WorkforceProduction
@@ -1012,6 +1401,10 @@ function ProductionPanel({
   busy: string | null
   onControl: (action: 'pause' | 'resume' | 'cancel' | 'retry') => Promise<void>
   onApprove: (approved: boolean) => Promise<void>
+  onApproveScript: () => Promise<void>
+  onRevision: () => Promise<void>
+  revisionDraft: string
+  setRevisionDraft: (value: string) => void
   onImprove: () => Promise<void>
   onFeedback: () => Promise<void>
   feedbackRating: number
@@ -1021,6 +1414,7 @@ function ProductionPanel({
   onDecide: (improvement: WorkforceImprovement, action: 'approve' | 'reject' | 'rollback') => Promise<void>
   onOpenAgent: (agentId: string) => void
   onRendered: () => Promise<void>
+  streamMode: 'connecting' | 'live' | 'polling'
   notify: (toast: { tone: 'success' | 'error' | 'info'; title: string; description?: string }) => void
 }) {
   const [renderState, setRenderState] = useState<{ phase: 'idle' | 'rendering' | 'uploading' | 'done'; progress: number; mime: string; error: string | null }>({
@@ -1030,6 +1424,10 @@ function ProductionPanel({
     error: null,
   })
   const artifacts = production.artifacts ?? {}
+  const scriptTask = production.tasks.find((task) => task.capability === 'script')
+  const canRevise =
+    Boolean(scriptTask && scriptTask.status === 'completed') &&
+    !['running', 'planning', 'queued', 'cancelled'].includes(production.status)
   const qcChecks: QualityCheck[] = Array.isArray(artifacts.qc) ? (artifacts.qc as QualityCheck[]) : []
   const blocked: string[] = Array.isArray(production.artifacts?.blocked)
     ? (production.artifacts?.blocked as string[])
@@ -1096,6 +1494,10 @@ function ProductionPanel({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-display text-[18px] font-semibold leading-tight text-txt">{production.title}</h2>
               <StatusPill status={production.status} />
+              {production.revision > 0 ? <Badge mono tone="violet">revision r{production.revision}</Badge> : null}
+              {production.requireScriptApproval ? (
+                <Badge mono tone={production.scriptApproved ? 'success' : 'warn'}>{production.scriptApproved ? 'script approved' : 'script gate'}</Badge>
+              ) : null}
               {production.approved ? <Badge mono tone="success">approved</Badge> : null}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-txt-faint">
@@ -1135,6 +1537,11 @@ function ProductionPanel({
               Retry failed tasks
             </Button>
           ) : null}
+          {production.status === 'awaiting_script_approval' ? (
+            <Button size="sm" variant="primary" icon={BadgeCheck} loading={busy === 'script-approve'} onClick={onApproveScript}>
+              Approve script & continue
+            </Button>
+          ) : null}
           {['running', 'paused', 'planning', 'queued'].includes(production.status) ? (
             <Button size="sm" variant="danger" icon={Square} loading={busy === 'cancel'} onClick={() => onControl('cancel')}>
               Cancel
@@ -1153,6 +1560,47 @@ function ProductionPanel({
           <Button size="sm" variant="outline" icon={Wand2} loading={busy === 'improve'} onClick={onImprove}>
             Run improvement cycle
           </Button>
+        </div>
+
+        {production.status === 'awaiting_script_approval' ? (
+          <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/[0.07] px-2.5 py-2 text-[10.5px] leading-relaxed text-amber-100/90">
+            Script review gate: downstream specialists are paused. Approve the script to release them, or request a revision with a concrete note. Requests are stored in agent memory.
+          </div>
+        ) : null}
+
+        <div className="mt-3 rounded-xl border border-white/[0.07] bg-white/[0.02] p-3">
+          <div className="flex items-center justify-between">
+            <div className="label text-[9px]">Request revision</div>
+            <Badge mono tone="violet">r{production.revision}</Badge>
+          </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-txt-faint">
+            Resets the script and every downstream task, keeps completed research, marks any render stale and stores the note in each affected agent’s memory.
+          </p>
+          <Textarea
+            value={revisionDraft}
+            onChange={(event) => setRevisionDraft(event.target.value)}
+            rows={2}
+            placeholder="Example: Lead with the cost angle and cut the second statistic; make the CTA a question."
+            className="mt-2 text-[11.5px]"
+            aria-label="Revision note"
+          />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[9.5px] text-txt-faint">
+              {canRevise ? 'The note is passed to the script generator and model prompt.' : running ? 'Pause the production before requesting a revision.' : 'The script must complete before a revision can be queued.'}
+            </span>
+            <Button size="sm" variant="secondary" icon={GitBranch} loading={busy === 'revision'} disabled={!canRevise || revisionDraft.trim().length < 3} onClick={onRevision}>
+              Queue revision
+            </Button>
+          </div>
+          {production.revisions.length ? (
+            <div className="mt-2 space-y-1 border-t border-white/[0.06] pt-2">
+              {production.revisions.slice(0, 3).map((revision) => (
+                <div key={`${revision.revision}-${revision.at}`} className="text-[10px] leading-relaxed text-txt-muted">
+                  <span className="font-mono text-violet-200">r{revision.revision}</span> · {timeAgo(revision.at)} · {revision.note}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -1328,7 +1776,7 @@ function ProductionPanel({
             <div className="label text-[9px]">Live event log</div>
             <span className="flex items-center gap-1 text-[10px] text-txt-faint">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan" />
-              {events.length} events · 3s polling
+              {events.length} events · {streamMode === 'live' ? 'live SSE' : streamMode === 'connecting' ? 'connecting' : '3s polling fallback'}
             </span>
           </div>
           <div className="mt-2 max-h-[340px] space-y-1 overflow-y-auto pr-1">

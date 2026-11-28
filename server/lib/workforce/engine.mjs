@@ -45,6 +45,18 @@ let initialized = false
 let worker = null
 const inFlight = new Set()
 const failureBreaker = new Map()
+const eventListeners = new Set()
+
+/**
+ * Subscribe to the live workforce event stream. The listener receives the same
+ * persisted entry that is written to the store, so SSE clients cannot observe
+ * anything that was not recorded.
+ */
+export function subscribeEvents(listener) {
+  if (typeof listener !== 'function') return () => {}
+  eventListeners.add(listener)
+  return () => eventListeners.delete(listener)
+}
 
 function nowISO() {
   return new Date().toISOString()
@@ -75,6 +87,13 @@ function emit(type, payload = {}) {
   }
   state.events.push(entry)
   if (state.events.length > EVENT_LIMIT) state.events.splice(0, state.events.length - EVENT_LIMIT)
+  for (const listener of eventListeners) {
+    try {
+      listener(entry)
+    } catch {
+      // A broken dashboard connection must never affect production work.
+    }
+  }
   return entry
 }
 
@@ -237,6 +256,10 @@ function hydrate(store) {
     production.tasks = Array.isArray(production.tasks) ? production.tasks : []
     production.feedback = Array.isArray(production.feedback) ? production.feedback : []
     production.researchSignals = Array.isArray(production.researchSignals) ? production.researchSignals : []
+    production.revisions = Array.isArray(production.revisions) ? production.revisions : []
+    production.revision = Number(production.revision) || 0
+    production.requireScriptApproval = Boolean(production.requireScriptApproval)
+    production.scriptApproved = Boolean(production.scriptApproved)
     if (!production.render) production.render = { status: 'not_rendered', note: 'No render uploaded yet.' }
   }
 }
@@ -372,6 +395,10 @@ function productionSummary(production) {
     status: production.status,
     approved: Boolean(production.approved),
     progress: progressFor(production),
+    revision: production.revision ?? 0,
+    requireScriptApproval: Boolean(production.requireScriptApproval),
+    scriptApproved: Boolean(production.scriptApproved),
+    scriptApprovedAt: production.scriptApprovedAt ?? null,
     createdAt: production.createdAt,
     updatedAt: production.updatedAt,
     startedAt: production.startedAt ?? null,
@@ -434,6 +461,7 @@ function productionDetail(production) {
     artifacts: production.artifacts ?? null,
     evaluation: production.evaluation ?? null,
     feedback: production.feedback ?? [],
+    revisions: (production.revisions ?? []).slice(0, 20),
     improvements: state.improvements.filter((row) => row.productionId === production.id),
     researchSignals: (production.researchSignals ?? []).slice(0, 18),
     engineNotes: production.engineNotes ?? [],
@@ -830,6 +858,11 @@ export function createProduction(body) {
     durationSec,
     status: 'planning',
     approved: false,
+    requireScriptApproval: Boolean(body?.requireScriptApproval),
+    scriptApproved: false,
+    scriptApprovedAt: null,
+    revision: 0,
+    revisions: [],
     progress: 0,
     createdAt: nowISO(),
     updatedAt: nowISO(),
@@ -958,10 +991,11 @@ function buildModelPrompt(production, task, agent, local, upstream) {
   ].join('\n')
   const user = [
     `PRODUCTION BRIEF\nTopic: ${production.topic}\nPlatform: ${production.platform}\nLanguage: ${LANGUAGES[production.language] ?? production.language}\nRuntime: ${production.durationSec}s`,
+    task.revisionNote ? `OPERATOR REVISION NOTE\n${truncate(task.revisionNote, 600)}\nApply this note to your output. Do not ignore it.` : '',
     upstreamSummaries ? `UPSTREAM OUTPUTS\n${upstreamSummaries}` : 'UPSTREAM OUTPUTS\nNone yet.',
     `LOCAL BASELINE (same JSON shape; improve it, keep its honesty)\n${JSON.stringify(local.data).slice(0, 3200)}`,
     'Return only the improved JSON object.',
-  ].join('\n\n')
+  ].filter(Boolean).join('\n\n')
   return { system, user }
 }
 
@@ -1251,6 +1285,7 @@ async function runTask(productionId, taskId) {
       liveSignals: production.researchSignals,
       directives: agent.directives,
       language: production.language,
+      revisionNote: task.revisionNote ?? null,
     }
     const local = localGenerate(task.capability, ctx)
     let final = { ...local, engine: 'local-heuristic', merged: false }
@@ -1361,6 +1396,20 @@ async function runTask(productionId, taskId) {
         message: `${agent.name} → ${nextTask.agentName}: delivered ${task.capability} output for “${nextTask.title}”.`,
         data: { from: agent.id, to: nextTask.agentId, topic: 'delivery', capability: task.capability },
       })
+    }
+    if (task.capability === 'script' && production.requireScriptApproval && !production.scriptApproved) {
+      production.status = 'awaiting_script_approval'
+      production.updatedAt = nowISO()
+      emit('production.script_review', {
+        productionId: production.id,
+        taskId: task.id,
+        agentId: agent.id,
+        agentName: agent.name,
+        message: `Script v${(production.revision ?? 0) + 1} is ready. Downstream specialists are paused until the operator approves the script or requests a revision.`,
+        data: { revision: production.revision ?? 0, gate: 'script-approval' },
+      })
+      save()
+      return
     }
     save()
     maybeFinalize(production)
@@ -1812,6 +1861,140 @@ export function approveProduction(productionId, approved) {
   return productionDetail(production)
 }
 
+/**
+ * Operator gate for the script. When a production was created with
+ * requireScriptApproval, the manager stops after the script task and waits here.
+ */
+export function approveScript(productionId, approved = true) {
+  const production = state.productions.find((row) => row.id === productionId)
+  if (!production) return null
+  const scriptTask = production.tasks.find((task) => task.capability === 'script')
+  if (!scriptTask) throw badRequest('This production has no script task yet.')
+  if (scriptTask.status !== 'completed') throw badRequest('The script has not been produced yet.')
+  if (!production.requireScriptApproval) {
+    throw badRequest('Script approval is not enabled for this production.')
+  }
+  production.scriptApproved = Boolean(approved)
+  production.scriptApprovedAt = approved ? nowISO() : null
+  production.updatedAt = nowISO()
+  if (approved) {
+    production.status = 'running'
+    emit('production.script_approved', {
+      productionId,
+      taskId: scriptTask.id,
+      message: `Operator approved the script for “${production.title}”. Downstream specialists are released.`,
+      data: { revision: production.revision ?? 0 },
+    })
+    save()
+    void tick()
+  } else {
+    production.status = 'awaiting_script_approval'
+    emit('production.script_rejected', {
+      productionId,
+      taskId: scriptTask.id,
+      message: `Operator sent the script back for revision. Use “Request revision” with a note so the scriptwriter has a concrete target.`,
+      data: { revision: production.revision ?? 0 },
+    })
+    save()
+  }
+  return productionDetail(production)
+}
+
+function resetTaskForRevision(task, note) {
+  task.status = 'pending'
+  task.attempts = 0
+  task.error = null
+  task.startedAt = null
+  task.completedAt = null
+  task.durationMs = null
+  task.readyAt = 0
+  task.summary = ''
+  task.quality = null
+  task.output = null
+  task.revisionNote = note
+}
+
+/**
+ * Operator-requested revision. Resets the script and every transitive
+ * downstream task, records the note in each affected agent's memory and marks
+ * any existing render as stale. Completed upstream work is preserved.
+ */
+export function requestRevision(productionId, body) {
+  const production = state.productions.find((row) => row.id === productionId)
+  if (!production) return null
+  const note = truncate(String(body?.note ?? '').trim(), 600)
+  if (note.length < 3) throw badRequest('A revision note of at least 3 characters is required.')
+  if (['running', 'planning', 'queued'].includes(production.status)) {
+    throw badRequest('Pause or finish the running production before requesting a revision.')
+  }
+  if (production.status === 'cancelled') throw badRequest('A cancelled production cannot be revised.')
+  const scriptTask = production.tasks.find((task) => task.capability === 'script')
+  if (!scriptTask || scriptTask.status !== 'completed') {
+    throw badRequest('The script must be complete before a revision can be requested.')
+  }
+
+  const affectedIds = new Set([scriptTask.id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const task of production.tasks) {
+      if (affectedIds.has(task.id)) continue
+      if ((task.dependsOn ?? []).some((depId) => affectedIds.has(depId))) {
+        affectedIds.add(task.id)
+        grew = true
+      }
+    }
+  }
+  const affected = production.tasks.filter((task) => affectedIds.has(task.id))
+  const previousRevision = production.revision ?? 0
+  production.revision = previousRevision + 1
+  const record = {
+    revision: production.revision,
+    note,
+    at: nowISO(),
+    requestedBy: 'operator',
+    capabilities: affected.map((task) => task.capability),
+  }
+  production.revisions = [record, ...(production.revisions ?? [])].slice(0, 20)
+
+  for (const task of affected) resetTaskForRevision(task, note)
+  for (const agentId of [...new Set(affected.map((task) => task.agentId))]) {
+    addMemory(findAgent(agentId), {
+      kind: 'correction',
+      content: `Operator revision r${record.revision} on “${production.title}”: ${note}`,
+      weight: 1,
+      productionId: production.id,
+    })
+  }
+
+  production.artifacts = production.artifacts ? { ...production.artifacts, revision: record.revision } : null
+  if (production.render?.status === 'uploaded') {
+    production.render = {
+      ...production.render,
+      status: 'stale',
+      note: `This render predates revision r${record.revision}. Re-render after the revised tasks complete.`,
+    }
+  }
+  production.status = 'running'
+  production.approved = false
+  production.completedAt = null
+  production.evaluation = null
+  production.qualityScore = null
+  production.error = null
+  production.scriptApproved = false
+  production.scriptApprovedAt = null
+  production.updatedAt = nowISO()
+  emit('production.revision', {
+    productionId,
+    taskId: scriptTask.id,
+    message: `Operator requested revision r${record.revision}: “${note}”. Reset ${affected.length} task${affected.length === 1 ? '' : 's'} from scripting onward; upstream research is preserved.`,
+    data: { revision: record.revision, note, capabilities: record.capabilities },
+  })
+  save()
+  void tick()
+  return productionDetail(production)
+}
+
 export function feedbackProduction(productionId, body) {
   const production = state.productions.find((row) => row.id === productionId)
   if (!production) return null
@@ -1850,7 +2033,7 @@ export function getEvents({ after = 0, productionId = null, limit = 200 } = {}) 
   const threshold = Number(after) || 0
   const max = Math.max(1, Math.min(500, Number(limit) || 200))
   const rows = state.events.filter((event) => event.seq > threshold && (!productionId || event.productionId === productionId))
-  return { events: rows.slice(-max), lastSeq: state.seq }
+  return { events: rows.slice(-max), seq: state.seq, lastSeq: state.seq }
 }
 
 async function ensureRendersDir() {
@@ -1898,6 +2081,7 @@ export async function saveRender(productionId, buffer, declaredMime, durationHea
 export async function readRenderFile(productionId) {
   const production = state.productions.find((row) => row.id === productionId)
   if (!production?.render?.file) return null
+  if (production.render.status !== 'uploaded') return null
   const file = join(RENDERS_DIR, production.render.file)
   const buffer = await readFile(file)
   return { buffer, mime: production.render.mime, filename: `${slugify(production.title) || 'production'}.${production.render.mime === 'video/mp4' ? 'mp4' : 'webm'}` }

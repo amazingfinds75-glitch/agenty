@@ -11,6 +11,7 @@ import { getAIStatus, runAnalysis } from './lib/ai.mjs'
 import { createVideoJob, getVideoJob, getVideoStatus, listVideoJobs } from './lib/video.mjs'
 import { initWorkforce, statusView, workforceBootLog } from './lib/workforce/engine.mjs'
 import { handleWorkforce } from './lib/workforce/api.mjs'
+import { qoderPublicConfig } from './lib/qoder/client.mjs'
 import { clamp, truncate } from './lib/util.mjs'
 
 const startTime = Date.now()
@@ -295,13 +296,22 @@ const server = http.createServer(async (req, res) => {
           'GET /api/workforce/productions',
           'POST /api/workforce/productions',
           'GET /api/workforce/productions/:id',
-          'POST /api/workforce/productions/:id/pause|resume|cancel|retry|approve|feedback|improve',
+          'POST /api/workforce/productions/:id/pause|resume|cancel|retry|approve|approve-script|revision|feedback|improve',
           'POST /api/workforce/productions/:id/render',
           'GET /api/workforce/productions/:id/render/file',
           'GET /api/workforce/productions/:id/artifacts/:name',
           'GET /api/workforce/improvements',
           'POST /api/workforce/improvements/:id/approve|reject|rollback',
           'GET /api/workforce/events?after=...',
+          'GET /api/workforce/events/stream?after=...&productionId=... (SSE)',
+          'GET /api/workforce/runtime/status?probe=1',
+          'GET /api/workforce/runtime/agents',
+          'GET /api/workforce/runtime/discovery',
+          'GET|POST /api/workforce/runtime/sessions',
+          'GET /api/workforce/runtime/sessions/:id?refresh=1',
+          'POST /api/workforce/runtime/sessions/:id/cancel',
+          'GET /api/workforce/runtime/sessions/:id/events',
+          'GET /api/workforce/runtime/sessions/:id/stream (Qoder Cloud SSE proxy)',
         ],
         note: 'Scores, analysis and chart history are computed locally. Publishing is not implemented. The workforce runs real background tasks; model calls require a configured key.',
         auth: API_TOKEN ? 'Write endpoints require "Authorization: Bearer <API_TOKEN>".' : 'No API token configured; keep this server on a trusted network.',
@@ -348,6 +358,12 @@ const server = http.createServer(async (req, res) => {
           enabled: true,
           ...workforceBootLog(),
           detail: 'Persistent agent workforce. Model calls run only when a key is configured and the agent is permitted.',
+        },
+        qoder: {
+          ...qoderPublicConfig(),
+          detail: qoderPublicConfig().configured
+            ? 'Qoder Cloud token is present on the server. Use /api/workforce/runtime/status to probe it.'
+            : 'Qoder Cloud is not configured. Set QODER_ACCESS_TOKEN on the server; tokens are never sent to the browser.',
         },
         note: 'Live sources are fetched from public feeds. Scores are heuristic. AI calls only run when configured and requested.',
       })
@@ -502,6 +518,7 @@ server.listen(CONFIG.port, CONFIG.host, () => {
   console.log(`  AI analysis: ${ai.configured ? `${ai.provider} · ${ai.model}` : 'heuristic only (no AI key)'}`)
   console.log(`  AI video: ${video.configured ? `${video.provider} · ${video.model}` : 'not configured (local canvas renderer remains verified)'}`)
   console.log(`  workforce: ${workforce.agents} agents · ${workforce.productions} productions · ${workforce.llm.configured ? `${workforce.llm.provider} model engine` : 'local directive engine (no model key)'}`)
+  console.log(`  qoder cloud: ${qoderPublicConfig().configured ? `configured for ${qoderPublicConfig().apiBaseHost}` : 'not configured (set QODER_ACCESS_TOKEN on the server)'}`)
   console.log(`  workforce queue: ${workforceStatus.counts.tasks.pending} pending · ${workforceStatus.counts.tasks.running} running · ${workforceStatus.counts.improvements.pending} improvements awaiting approval`)
   console.log(`  data: ${CONFIG.dataDir}`)
 })

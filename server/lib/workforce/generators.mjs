@@ -189,10 +189,13 @@ function allResearchText(research) {
 
 const MOODS = ['bright', 'insight', 'calm', 'tense']
 
-function buildScenes({ topic, platform, durationSec, directives, language, research }) {
+function buildScenes({ topic, platform, durationSec, directives, language, research, revisionNote }) {
   const clean = cleanTopic(topic)
   const count = sceneCountFor(platform, durationSec)
   const timings = sceneTimings(durationSec, count)
+  const revisionFocus = revisionNote
+    ? truncateText(String(revisionNote).replace(/\s+/g, ' ').trim().replace(/[.!?]+$/, ''), 120)
+    : ''
   const accentNote = research.length
     ? `Public signals matched: ${research
         .slice(0, 2)
@@ -203,7 +206,9 @@ function buildScenes({ topic, platform, durationSec, directives, language, resea
   const beats = [
     {
       label: 'Hook',
-      narration: `${sentenceCase(clean)} — here is the part most people miss.`,
+      narration: revisionFocus
+        ? `${sentenceCase(clean)} — the operator asked for this revision: ${revisionFocus}.`
+        : `${sentenceCase(clean)} — here is the part most people miss.`,
       visual: `Bold kinetic title over a deep gradient keyed to the topic, ${clean} motifs animating in.`,
       shot: 'Fast push-in, text snaps on the beat',
     },
@@ -214,8 +219,10 @@ function buildScenes({ topic, platform, durationSec, directives, language, resea
       shot: 'Slow lateral drift with parallax layers',
     },
     {
-      label: 'What changed',
-      narration: accentNote,
+      label: revisionFocus ? 'Revision focus' : 'What changed',
+      narration: revisionFocus
+        ? `Revision focus: ${revisionFocus}. ${accentNote}`
+        : accentNote,
       visual: 'Evidence cards with source names; no invented statistics.',
       shot: 'Top-down card stack, calm pacing',
     },
@@ -419,10 +426,10 @@ function buildStrategy({ production, upstream, directives }) {
   }
 }
 
-function buildScript({ production, upstream, directives, language }) {
+function buildScript({ production, upstream, directives, language, revisionNote }) {
   const research = upstream['trend-research']?.artifacts?.research ?? []
   const strategy = upstream['content-strategy']?.data ?? {}
-  const seed = hashString(`${production.id}:script`)
+  const seed = hashString(`${production.id}:script:${revisionNote ?? ''}`)
   const clean = cleanTopic(production.topic)
   const scenes = buildScenes({
     topic: clean,
@@ -431,8 +438,14 @@ function buildScript({ production, upstream, directives, language }) {
     directives,
     language,
     research,
+    revisionNote,
   })
-  const hook = `“${sentenceCase(clean)} — here is what the headline leaves out.”`
+  const revisionFocus = revisionNote
+    ? truncateText(String(revisionNote).replace(/\s+/g, ' ').trim().replace(/[.!?]+$/, ''), 120)
+    : ''
+  const hook = revisionFocus
+    ? `“${sentenceCase(clean)} — revised to focus on ${revisionFocus}.”`
+    : `“${sentenceCase(clean)} — here is what the headline leaves out.”`
   const titles = [
     truncateText(sentenceCase(clean), 70),
     `The part of ${truncateText(clean, 52)} nobody explains`,
@@ -451,7 +464,9 @@ function buildScript({ production, upstream, directives, language }) {
     check('evidence', 'Claim discipline', research.length ? 'pass' : 'warn', research.length ? 'Script references only collected signals.' : 'No evidence matched; script avoids statistics.'),
   ]
   return {
-    summary: `Wrote ${scenes.length} scenes (${words} words) with hook “${truncateText(hook, 80)}”.`,
+    summary: revisionFocus
+      ? `Revised ${scenes.length} scenes (${words} words) around the operator note “${revisionFocus}”.`
+      : `Wrote ${scenes.length} scenes (${words} words) with hook “${truncateText(hook, 80)}”.`,
     checks,
     artifacts: {
       title: titles[0] ?? sentenceCase(clean),
@@ -464,8 +479,9 @@ function buildScript({ production, upstream, directives, language }) {
       durationSec: production.durationSec,
       language,
       languageLabel: LANGUAGES[language] ?? 'English',
+      revisionNote: revisionFocus || null,
     },
-    data: { hook, titles, cta, scenes, words, seed },
+    data: { hook, titles, cta, scenes, words, seed, revisionNote: revisionFocus || null },
   }
 }
 

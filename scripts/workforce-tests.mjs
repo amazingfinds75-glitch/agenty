@@ -3,7 +3,7 @@
 // pause/resume/cancel controls, parallel execution evidence and persisted counts.
 import { writeFileSync, mkdirSync } from 'node:fs'
 
-const BASE = 'http://127.0.0.1:8787/api/workforce'
+const BASE = `${process.env.STUDIO_BASE ?? 'http://127.0.0.1:8787'}/api/workforce`
 const OUT = 'e2e-artifacts'
 mkdirSync(OUT, { recursive: true })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -175,9 +175,14 @@ async function main() {
 
   console.log('\n[6] manager-driven factory: retire a specialist, request a brief, factory refills the role')
   const roster = (await call('GET', '/agents')).agents
-  const thumb = roster.find((a) => a.capability === 'thumbnail' && a.status === 'active')
-  assert(thumb, 'need an active thumbnail specialist to retire')
-  await call('POST', `/agents/${thumb.id}/retire`, {})
+  const thumbnails = roster.filter((a) => a.capability === 'thumbnail' && a.status === 'active')
+  assert(thumbnails.length > 0, 'need an active thumbnail specialist to retire')
+  // The roster may legitimately contain several specialists for one capability.
+  // Retire the whole active role so the next plan genuinely has a missing capability.
+  for (const thumb of thumbnails) {
+    await call('POST', `/agents/${thumb.id}/retire`, {})
+  }
+  const retiredThumbnailIds = new Set(thumbnails.map((agent) => agent.id))
   const refill = await call('POST', '/productions', {
     topic: 'Factory refill check: a 30 second Reel about how 3D printing changed small-batch manufacturing',
     platform: 'instagram-reel',
@@ -195,11 +200,13 @@ async function main() {
     return agent?.capability ?? agentId
   })
   assert(createdCapabilities.includes('thumbnail'), 'factory should create a replacement thumbnail specialist')
-  const newThumb = (await call('GET', '/agents')).agents.find((a) => a.capability === 'thumbnail' && a.status === 'active')
-  assert(newThumb && newThumb.id !== thumb.id, 'replacement thumbnail agent should be active and distinct')
+  const newThumb = (await call('GET', '/agents')).agents.find(
+    (a) => a.capability === 'thumbnail' && a.status === 'active' && !retiredThumbnailIds.has(a.id),
+  )
+  assert(newThumb, 'replacement thumbnail agent should be active and distinct')
   results.factoryRefill = {
     productionId: refillId,
-    retiredAgent: thumb.name,
+    retiredAgents: thumbnails.map((agent) => ({ id: agent.id, name: agent.name })),
     createdAgents: createdCapabilities,
     replacement: { id: newThumb.id, name: newThumb.name, version: newThumb.version, createdBy: newThumb.createdBy },
     planNotes: planned.plan.notes,

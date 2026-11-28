@@ -132,6 +132,8 @@ export default function VerificationPage() {
           items={[
             ['Chat → production flow', 'Sending a prompt creates a session, builds a plan message and starts the simulated pipeline. Cancelling and revising work.'],
             ['Agent workforce', 'A brief also starts a real background production in the persistent workforce: 13 dependent tasks, 13 specialist agents, event log and structured artifacts stored on the server.'],
+            ['Live event stream', 'The workforce dashboard subscribes to server-sent events from the running engine and falls back to polling. Every row it shows comes from a stored engine event, never a timer.'],
+            ['Script approval and revisions', 'With the script gate enabled, downstream specialists pause until the operator approves the script or requests a revision. A revision resets every dependent task, records the note in agent memory and re-runs the affected stages.'],
             ['Agent factory', 'Specialists can be registered, edited into a new version, sandbox-tested, given memory and retired from the workforce dashboard. No fixed roster cap.'],
             ['30s Reel render', 'Verified end to end in Chrome: a 30-second 9:16 Instagram Reel rendered through canvas + MediaRecorder (video/mp4), uploaded, signature-checked by the server and downloaded again byte-for-byte.'],
             ['Improvement cycle', 'Measured proposals are generated from evaluation results, tested against the current directive in a sandbox and require human approval before activation; rollback restores the prior version.'],
@@ -159,6 +161,8 @@ export default function VerificationPage() {
           items={[
             ['Video render quality', 'MediaRecorder output is a genuine local cut. Chrome produced MP4 here; other browsers may produce WebM, and playback/conversion on other devices has not been checked.'],
             ['Workforce model calls', 'No model key is configured, so agents use the deterministic local directive engine. The OpenAI, Anthropic and Gemini merge path exists but has never run with a real key.'],
+            ['Qoder Cloud sessions', 'The server can discover Qoder Cloud agents and stream their sessions, but no access token is configured here, so remote session creation has only been verified to fail loudly with a 503. The token never reaches the browser.'],
+            ['Qoder Desktop agents', 'The agent profiles found in ~/.qoder/agents are shown in the Runtimes tab as IDE-local and not callable. They only run inside the Qoder Desktop process; the website uses the local runtime or Qoder Cloud instead.'],
             ['Narration audio', 'The workforce writes a timed narration script and voice direction; no TTS provider is connected, so the stored video has no speech track.'],
             ['Improvement proposals', 'Proposals are derived from real scores, but no model rewrites prompts yet; the before/after harness is the verified part.'],
             ['AI signal analysis', 'With a provider key in .env, analysis calls OpenAI, Anthropic or Gemini for strict JSON. The call path is unverified without a real key; unconfigured or failing calls return a labeled local heuristic.'],
@@ -251,6 +255,16 @@ function LiveServicesPanel() {
             detail: health.ai.configured
               ? `${health.ai.provider} · ${health.ai.model} configured, but the call path is unverified until you run an analysis with a real key.`
               : 'No AI key configured. Analysis falls back to a labeled local heuristic that makes no model call.',
+          },
+          {
+            icon: ShieldQuestion,
+            label: 'Qoder runtime',
+            status: health.qoder?.configured ? 'pass' : 'warn',
+            detail: health.qoder
+              ? health.qoder.configured
+                ? `Qoder Cloud is configured for ${health.qoder.apiBaseHost}. Agents discovered there run as remote sessions; the access token stays on the server.`
+                : 'Qoder Cloud is not configured: set QODER_ACCESS_TOKEN on the server. Desktop IDE agents are discovered but cannot be called from a website, so equivalent specialists run in the local runtime.'
+              : 'Runtime status unavailable from this backend build.',
           },
           {
             icon: Clapperboard,

@@ -1,6 +1,8 @@
+import { Readable } from 'node:stream'
 import {
   addAgentMemory,
   approveProduction,
+  approveScript,
   artifactFile,
   controlProduction,
   createAgent,
@@ -15,16 +17,31 @@ import {
   listImprovements,
   listProductionSummaries,
   readRenderFile,
+  requestRevision,
   retireAgent,
   saveRender,
   statusView,
+  subscribeEvents,
   testAgent,
   updateAgent,
 } from './engine.mjs'
+import {
+  cancelQoderRuntimeSession,
+  createQoderRuntimeSession,
+  getRuntimeSession,
+  listQoderRuntimeSessions,
+  listRuntimeAgents,
+  qoderDiscovery,
+  qoderRuntimeSessionEvents,
+  qoderRuntimeSessionStream,
+  refreshQoderRuntimeSession,
+  runtimeStatus,
+} from './runtime.mjs'
 
 const WRITE_RATE = 'analyze'
 const RENDER_RATE = 'video'
 const PRODUCTION_ID = /^[A-Za-z0-9_-]{3,64}$/
+const SESSION_ID = /^[A-Za-z0-9_-]{3,80}$/
 
 function sendBuffer(req, res, securityHeaders, status, { buffer, mime, filename }, inline = false) {
   const disposition = inline ? 'inline' : 'attachment'
@@ -68,6 +85,159 @@ export async function handleWorkforce(req, res, url, helpers) {
   const segments = route.split('/').filter(Boolean).map((segment) => decodeURIComponent(segment))
 
   try {
+    if (segments[0] === 'events' && segments[1] === 'stream' && method === 'GET') {
+      const after = Number(req.headers['last-event-id']) || Number(url.searchParams.get('after')) || 0
+      const productionId = url.searchParams.get('productionId') || null
+      res.writeHead(
+        200,
+        securityHeaders(req, {
+          'content-type': 'text/event-stream; charset=utf-8',
+          'cache-control': 'no-store, no-transform',
+          connection: 'keep-alive',
+          'x-accel-buffering': 'no',
+        }),
+      )
+      res.write('retry: 3000\n\n')
+      let lastSeq = after
+      let replaying = true
+      const buffered = []
+      const send = (entry) => {
+        if (!entry || entry.seq <= lastSeq) return
+        if (productionId && entry.productionId !== productionId) return
+        lastSeq = entry.seq
+        try {
+          res.write(`id: ${entry.seq}\ndata: ${JSON.stringify(entry)}\n\n`)
+        } catch {
+          // The client disconnected; the close handler cleans up.
+        }
+      }
+      const unsubscribe = subscribeEvents((entry) => {
+        if (replaying) buffered.push(entry)
+        else send(entry)
+      })
+      const initial = getEvents({ after, productionId, limit: 500 })
+      for (const entry of initial.events) send(entry)
+      replaying = false
+      for (const entry of buffered) send(entry)
+      res.write(`: connected · ${initial.events.length} replayed\n\n`)
+      const heartbeat = setInterval(() => {
+        try {
+          res.write(': heartbeat\n\n')
+        } catch {
+          // ignore; close handler stops the interval
+        }
+      }, 15_000)
+      heartbeat.unref?.()
+      let closed = false
+      const close = () => {
+        if (closed) return
+        closed = true
+        clearInterval(heartbeat)
+        unsubscribe()
+        res.end()
+      }
+      res.on('close', close)
+      req.on('error', close)
+      req.on('aborted', close)
+      return true
+    }
+
+    if (segments[0] === 'runtime') {
+      if (segments[1] === 'status' && segments.length === 2 && method === 'GET') {
+        const probe = ['1', 'true', 'yes'].includes(String(url.searchParams.get('probe') ?? '').toLowerCase())
+        json(req, res, 200, await runtimeStatus({ probe }))
+        return true
+      }
+      if (segments[1] === 'agents' && segments.length === 2 && method === 'GET') {
+        json(req, res, 200, await listRuntimeAgents())
+        return true
+      }
+      if (segments[1] === 'discovery' && segments.length === 2 && method === 'GET') {
+        json(req, res, 200, await qoderDiscovery())
+        return true
+      }
+      if (segments[1] === 'sessions' && segments.length === 2) {
+        if (method === 'GET') {
+          json(req, res, 200, { ok: true, sessions: await listQoderRuntimeSessions() })
+          return true
+        }
+        if (method === 'POST') {
+          if (rateLimited(req, WRITE_RATE)) {
+            json(req, res, 429, { ok: false, error: 'Cloud session creation is limited to 8 requests per minute.' })
+            return true
+          }
+          const body = await readBody(req)
+          const session = await createQoderRuntimeSession(body)
+          json(req, res, 201, { ok: true, session })
+          return true
+        }
+      }
+      if (segments[1] === 'sessions' && segments.length >= 3) {
+        const sessionId = segments[2]
+        if (!SESSION_ID.test(sessionId)) {
+          json(req, res, 400, { ok: false, error: 'Invalid session id.' })
+          return true
+        }
+        if (segments.length === 3 && method === 'GET') {
+          const refresh = ['1', 'true'].includes(String(url.searchParams.get('refresh') ?? '').toLowerCase())
+          const session = refresh ? await refreshQoderRuntimeSession(sessionId) : await getRuntimeSession(sessionId)
+          if (!session) return notFound(req, res, json, 'Qoder session not found.')
+          json(req, res, 200, { ok: true, session })
+          return true
+        }
+        if (segments.length === 4 && segments[3] === 'cancel' && method === 'POST') {
+          const session = await cancelQoderRuntimeSession(sessionId)
+          if (!session) return notFound(req, res, json, 'Qoder session not found.')
+          json(req, res, 200, { ok: true, session })
+          return true
+        }
+        if (segments.length === 4 && segments[3] === 'events' && method === 'GET') {
+          const events = await qoderRuntimeSessionEvents(sessionId, Number(url.searchParams.get('limit')) || 100)
+          if (!events) return notFound(req, res, json, 'Qoder session not found.')
+          json(req, res, 200, { ok: true, events })
+          return true
+        }
+        if (segments.length === 4 && segments[3] === 'stream' && method === 'GET') {
+          const controller = new AbortController()
+          const upstream = await qoderRuntimeSessionStream(sessionId, {
+            lastEventId: req.headers['last-event-id'],
+            signal: controller.signal,
+          })
+          if (!upstream) return notFound(req, res, json, 'Qoder session not found.')
+          if (!upstream.ok) {
+            const text = await upstream.text().catch(() => '')
+            json(req, res, upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status, {
+              ok: false,
+              error: `Qoder Cloud stream failed (HTTP ${upstream.status}). ${text.replace(/\s+/g, ' ').slice(0, 300)}`,
+            })
+            return true
+          }
+          res.writeHead(
+            200,
+            securityHeaders(req, {
+              'content-type': 'text/event-stream; charset=utf-8',
+              'cache-control': 'no-store, no-transform',
+              connection: 'keep-alive',
+              'x-accel-buffering': 'no',
+            }),
+          )
+          const close = () => controller.abort()
+          req.on('close', close)
+          res.on('close', close)
+          if (upstream.body) {
+            Readable.fromWeb(upstream.body)
+              .on('error', () => {
+                if (!res.writableEnded) res.end()
+              })
+              .pipe(res)
+          } else {
+            res.end()
+          }
+          return true
+        }
+      }
+    }
+
     if (segments[0] === 'status' && segments.length === 1 && method === 'GET') {
       json(req, res, 200, statusView())
       return true
@@ -175,6 +345,24 @@ export async function handleWorkforce(req, res, url, helpers) {
         if (action === 'approve' && method === 'POST') {
           const body = await readBody(req)
           const production = approveProduction(productionId, body?.approved)
+          if (!production) return notFound(req, res, json, 'Production not found.')
+          json(req, res, 200, { ok: true, production })
+          return true
+        }
+        if (action === 'approve-script' && method === 'POST') {
+          const body = await readBody(req)
+          const production = approveScript(productionId, body?.approved !== false)
+          if (!production) return notFound(req, res, json, 'Production not found.')
+          json(req, res, 200, { ok: true, production })
+          return true
+        }
+        if (action === 'revision' && method === 'POST') {
+          if (rateLimited(req, WRITE_RATE)) {
+            json(req, res, 429, { ok: false, error: 'Revision requests are limited to 8 per minute.' })
+            return true
+          }
+          const body = await readBody(req)
+          const production = requestRevision(productionId, body)
           if (!production) return notFound(req, res, json, 'Production not found.')
           json(req, res, 200, { ok: true, production })
           return true
@@ -300,9 +488,13 @@ export async function handleWorkforce(req, res, url, helpers) {
     json(req, res, 404, { ok: false, error: 'Unknown workforce API route.' })
     return true
   } catch (error) {
-    const status = Number(error?.statusCode) || 500
+    const status = Number(error?.statusCode ?? error?.status) || 500
     if (status >= 500) console.error('[workforce]', error)
-    json(req, res, status, { ok: false, error: status >= 500 ? 'Workforce error: the server could not complete the request.' : error?.message ?? 'Request failed.' })
+    const message =
+      error?.name === 'QoderError' || [400, 401, 403, 404, 409, 429, 502, 503, 504].includes(status)
+        ? error?.message ?? 'Request failed.'
+        : 'Workforce error: the server could not complete the request.'
+    json(req, res, status, { ok: false, error: message })
     return true
   }
 }

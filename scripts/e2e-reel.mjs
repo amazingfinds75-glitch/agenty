@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const BASE = 'http://127.0.0.1:8787'
+const BASE = process.env.STUDIO_BASE ?? 'http://127.0.0.1:8787'
 const CHROME = 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 const PORT = 9333
 const TOPIC = 'Create a 30-second Instagram Reel about why AI agent teams are replacing solo creator workflows'
@@ -144,6 +144,7 @@ async function main() {
   })()`)
   console.log('composer state:', typed)
   if (!typed?.ok) throw new Error('composer not ready')
+  await sleep(400)
 
   const clicked = await evalJs(`(() => {
     const buttons = [...document.querySelectorAll('button[type="submit"]')]

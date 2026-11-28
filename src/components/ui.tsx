@@ -178,6 +178,7 @@ const STATUS_MAP: Record<string, { label: string; tone: BadgeTone; dot: 'cyan' |
   running: { label: 'In production', tone: 'cyan', dot: 'cyan', pulse: true },
   planning: { label: 'Planning', tone: 'violet', dot: 'violet', pulse: true },
   awaiting_approval: { label: 'Awaiting approval', tone: 'warn', dot: 'amber' },
+  awaiting_script_approval: { label: 'Script review', tone: 'warn', dot: 'amber', pulse: true },
   paused: { label: 'Paused', tone: 'warn', dot: 'amber' },
   completed: { label: 'Completed', tone: 'success', dot: 'green' },
   failed: { label: 'Failed', tone: 'error', dot: 'rose' },

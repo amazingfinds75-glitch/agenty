@@ -154,6 +154,10 @@ export interface WorkforceProductionSummary {
   status: string
   approved: boolean
   progress: number
+  revision: number
+  requireScriptApproval: boolean
+  scriptApproved: boolean
+  scriptApprovedAt: string | null
   createdAt: string
   updatedAt: string
   startedAt: string | null
@@ -170,6 +174,7 @@ export interface WorkforceProduction extends WorkforceProductionSummary {
   artifacts: Record<string, any> | null
   evaluation: { score: number; checks: QualityCheck[]; summary?: string } | null
   feedback: Array<{ rating: number; note: string; at: string }>
+  revisions: Array<{ revision: number; note: string; at: string; requestedBy: string; capabilities: string[] }>
   improvements: WorkforceImprovement[]
   researchSignals: Array<{ title: string; source: string; url: string; score: number; metricLabel?: string }>
   engineNotes: string[]
@@ -215,6 +220,109 @@ export interface WorkforceEvent {
   agentName?: string | null
   message: string
   data?: Record<string, unknown> | null
+}
+
+export type WorkforceRuntimeKind = 'local-runtime' | 'qoder-cloud' | 'qoder-ide'
+
+export interface WorkforceRuntimeRow {
+  id: string
+  name: string
+  kind: WorkforceRuntimeKind
+  status: 'connected' | 'not_configured' | 'unauthorized' | 'error' | 'detected_not_callable' | 'not_detected'
+  externallyCallable: boolean
+  execution: string
+  detail: string
+  agents: number | null
+  activeTasks: number | null
+  configured?: boolean
+  apiBaseHost?: string
+}
+
+export interface WorkforceRuntimeStatus {
+  ok: boolean
+  generatedAt: string
+  runtimes: WorkforceRuntimeRow[]
+  qoderCloud: {
+    configured: boolean
+    status: string
+    reachable: boolean | null
+    authorized: boolean | null
+    latencyMs: number | null
+    checkedAt: string
+    detail: string
+    tokenEnv: string
+    apiBaseHost: string
+    agentConfigured: boolean
+    environmentConfigured: boolean
+    agentId: string | null
+    environmentId: string | null
+  }
+  qoderDesktop: { callable: boolean; count: number; detail: string }
+  local: {
+    activeAgents: number
+    totalAgents: number
+    tasksRunning: number
+    tasksPending: number
+    workers: { concurrency: number; active: number }
+    persistence: { path: string; savedAt: string | null }
+  }
+}
+
+export interface WorkforceRuntimeAgent {
+  id: string
+  name: string
+  description: string | null
+  role?: string | null
+  capability: string | null
+  status: string | null
+  version: string | number | null
+  model: string | null
+  runtime: WorkforceRuntimeKind
+  runtimeLabel: string
+  externallyCallable: boolean
+  callable: boolean
+  execution: string
+  tools?: string[]
+  permissions?: WorkerPermissions | null
+  performance?: WorkerPerformance | null
+  currentTask?: { id: string; title: string; productionId: string; status: string } | null
+  permissionMode?: string | null
+  source?: string
+  reason?: string
+}
+
+export interface WorkforceRuntimeAgents {
+  ok: boolean
+  generatedAt: string
+  agents: WorkforceRuntimeAgent[]
+  sources: Array<{ id: string; label: string; callable: boolean; count: number; detail: string; error?: string | null }>
+}
+
+export interface QoderSession {
+  id: string
+  remoteId: string
+  title: string
+  task: string
+  agentId: string
+  environmentId: string
+  status: string
+  createdAt: string
+  updatedAt: string
+  lastError: string | null
+  usage: Record<string, unknown> | null
+}
+
+export interface QoderDiscovery {
+  configured: boolean
+  agents: Array<{ id: string; name: string; description?: string | null; version?: string | null; model?: string | null; status?: string | null; createdAt?: string | null }>
+  environments: Array<{ id: string; name: string; status: string | null; createdAt: string | null }>
+  detail?: string
+  tokenEnv?: string
+  apiBaseHost?: string
+  agentConfigured?: boolean
+  environmentConfigured?: boolean
+  agentId?: string | null
+  environmentId?: string | null
 }
 
 export class WorkforceApiError extends Error {
@@ -346,6 +454,7 @@ export interface NewProductionInput {
   platform: WorkforcePlatform
   language: WorkforceLanguage
   durationSec?: number
+  requireScriptApproval?: boolean
 }
 
 export function createWorkforceProduction(input: NewProductionInput) {
@@ -370,6 +479,20 @@ export function approveWorkforceProduction(productionId: string, approved: boole
   return request<{ ok: boolean; production: WorkforceProductionSummary }>(`/api/workforce/productions/${encodeURIComponent(productionId)}/approve`, {
     method: 'POST',
     body: JSON.stringify({ approved }),
+  })
+}
+
+export function approveWorkforceScript(productionId: string, approved = true) {
+  return request<{ ok: boolean; production: WorkforceProduction }>(`/api/workforce/productions/${encodeURIComponent(productionId)}/approve-script`, {
+    method: 'POST',
+    body: JSON.stringify({ approved }),
+  })
+}
+
+export function requestWorkforceRevision(productionId: string, note: string) {
+  return request<{ ok: boolean; production: WorkforceProduction }>(`/api/workforce/productions/${encodeURIComponent(productionId)}/revision`, {
+    method: 'POST',
+    body: JSON.stringify({ note }),
   })
 }
 
@@ -452,6 +575,73 @@ export function workforceRenderUrl(productionId: string) {
 export function workforceArtifactUrl(productionId: string, name: 'script.txt' | 'narration.txt' | 'captions.srt' | 'metadata.json' | 'thumbnail.svg' | 'cover.svg') {
   return `/api/workforce/productions/${encodeURIComponent(productionId)}/artifacts/${name}`
 }
+
+/* -------------------------------- runtime --------------------------------- */
+
+export function fetchWorkforceRuntime(probe = false) {
+  return request<WorkforceRuntimeStatus>(`/api/workforce/runtime/status${probe ? '?probe=1' : ''}`, undefined, probe ? 20_000 : 8_000)
+}
+
+export function fetchRuntimeAgents() {
+  return request<WorkforceRuntimeAgents>('/api/workforce/runtime/agents', undefined, 20_000)
+}
+
+export function fetchRuntimeDiscovery() {
+  return request<QoderDiscovery>('/api/workforce/runtime/discovery', undefined, 20_000)
+}
+
+export function fetchQoderSessions() {
+  return request<{ ok: boolean; sessions: QoderSession[] }>('/api/workforce/runtime/sessions')
+}
+
+export interface NewQoderSessionInput {
+  task: string
+  agentId?: string
+  environmentId?: string
+}
+
+export function createQoderSession(input: NewQoderSessionInput) {
+  return request<{ ok: boolean; session: QoderSession }>('/api/workforce/runtime/sessions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }, 35_000)
+}
+
+export function fetchQoderSession(sessionId: string, refresh = false) {
+  return request<{ ok: boolean; session: QoderSession }>(
+    `/api/workforce/runtime/sessions/${encodeURIComponent(sessionId)}${refresh ? '?refresh=1' : ''}`,
+    undefined,
+    20_000,
+  )
+}
+
+export function cancelQoderSession(sessionId: string) {
+  return request<{ ok: boolean; session: QoderSession }>(`/api/workforce/runtime/sessions/${encodeURIComponent(sessionId)}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
+export function fetchQoderSessionEvents(sessionId: string, limit = 100) {
+  return request<{ ok: boolean; events: unknown[] }>(
+    `/api/workforce/runtime/sessions/${encodeURIComponent(sessionId)}/events?limit=${limit}`,
+    undefined,
+    20_000,
+  )
+}
+
+export function qoderSessionStreamUrl(sessionId: string) {
+  return `/api/workforce/runtime/sessions/${encodeURIComponent(sessionId)}/stream`
+}
+
+export function workforceEventsStreamUrl(productionId?: string | null, after = 0) {
+  const params = new URLSearchParams()
+  if (productionId) params.set('productionId', productionId)
+  if (after > 0) params.set('after', String(after))
+  const query = params.toString()
+  return `/api/workforce/events/stream${query ? `?${query}` : ''}`
+}
+
 
 export function formatBytes(bytes: number | null | undefined) {
   if (!bytes || bytes <= 0) return '0 B'
